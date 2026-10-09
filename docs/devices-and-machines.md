@@ -93,10 +93,21 @@ yours that is in the conversation adds the device to it.
 
 ## This machine as an agent device
 
-`airdress agent device join|status|leave|serve` enrolls the machine you are
-on as an agent device, with a phone approving. It is present in builds made
-with the `mls` feature, which the published releases do not yet include; a
-released binary answers `unrecognized subcommand`.
+An agent device is its own binary, `airdress-agent`, released beside
+`airdress` for Linux and macOS (`airdress-agent-<platform>`, and an
+`airdress-agent` .deb). It is the one binary that carries the MLS engine an
+agent device needs; `airdress` and `airdress mcp serve` carry none.
+
+```sh
+airdress-agent device join      # ask; a phone of yours approves, and it waits
+airdress-agent device status    # approved, renewal due, expired
+airdress-agent device serve     # the device host your editor's sessions share
+airdress-agent device leave     # sign it out and delete its keys
+```
+
+It takes the same global flags as `airdress` (`-A`, `--output json`,
+`--ca-file`, …). `airdress agent …` only tells you to run `airdress-agent`.
+Windows has no `airdress-agent`: the device host listens on a Unix socket.
 
 ## Renewing a certificate
 
