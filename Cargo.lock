@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "airdress"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "airdress-httpsig",
  "airdress-mcp-catalogue",
@@ -106,7 +106,7 @@ dependencies = [
 
 [[package]]
 name = "airdress-mcp"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "airdress",
  "anyhow",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "airdress-mcp-catalogue"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -159,7 +159,7 @@ dependencies = [
 
 [[package]]
 name = "airdress-shell-host"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "airdress-httpsig",
  "airdress-shell-proto",
@@ -197,7 +197,7 @@ dependencies = [
 
 [[package]]
 name = "airdress-shell-mock-host"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "airdress-shell-proto",
  "base64",
@@ -209,7 +209,7 @@ dependencies = [
 
 [[package]]
 name = "airdress-shell-proto"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "base64",
  "chacha20poly1305",
@@ -230,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "airdress-term"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "alacritty_terminal",
 ]

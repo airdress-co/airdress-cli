@@ -1,6 +1,6 @@
 [package]
 name = "airdress-shell-host"
-version = "0.1.4"
+version = "0.1.5"
 description = "The shell host: runs the sessions a person registered on their own machine, end to end to their enrolled devices"
 edition.workspace = true
 rust-version.workspace = true
@@ -14,7 +14,7 @@ workspace = true
 # no helper process that outlives it, and talks to one operator: the one
 # it enrolled with.
 [dependencies]
-airdress-shell-proto = { version = "0.1.4", path = "../airdress-shell-proto" }
+airdress-shell-proto = { version = "0.1.5", path = "../airdress-shell-proto" }
 # Machine-signed requests: the operator's own signing crate, the same pin
 # as the CLI, so the signer and the verifier cannot drift apart.
 airdress-httpsig = { version = "0.2.0", git = "https://github.com/airdress-co/airdress-httpsig", tag = "v0.2.0" }
@@ -56,7 +56,7 @@ testkit = ["dep:p256", "dep:axum"]
 [dev-dependencies]
 # The client's screen model: a snapshot is checked by replaying it where a
 # phone replays it.
-airdress-term = { version = "0.1.4", path = "../airdress-term" }
+airdress-term = { version = "0.1.5", path = "../airdress-term" }
 tempfile = "3"
 
 # The integration tests drive a real host against the test kit's mock
