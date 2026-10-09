@@ -95,7 +95,7 @@ body = """
 {% if commit.breaking %}[**breaking**] {% endif %}\
 {{ commit.message | upper_first }}
 {% endfor -%}
-{% endfor %}
+{% endfor -%}
 """
 commit_parsers = [
   { message = "^chore\\(release\\)", skip = true },
