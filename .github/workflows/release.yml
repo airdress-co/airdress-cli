@@ -357,9 +357,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # What is published: the `airdress*` build artifacts only. The pass-B
+      # rebuilds and the airdress-mcp passes exist for the compare job; the
+      # editor plugin builds and publishes airdress-mcp itself.
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: "airdress-*"
           merge-multiple: true
 
       - name: Determine version
@@ -378,7 +382,7 @@ jobs:
       - name: Generate manifest.json
         run: |
           VERSION="${{ steps.version.outputs.tag }}"
-          PRE_RELEASE=$(echo "$VERSION" | grep -qE '-(alpha|beta|rc)' && echo true || echo false)
+          PRE_RELEASE=$(echo "$VERSION" | grep -qE -- '-(alpha|beta|rc)' && echo true || echo false)
           PUBLISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
           ARTIFACTS='[]'
