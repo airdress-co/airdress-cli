@@ -4,7 +4,7 @@
 //! [`AuthConfig::Hub`]) holds one grant and asks for a separate access token
 //! per resource (RFC 8707): the hub API under its own resource indicator,
 //! and each operator under `https://<fqdn>/v1`. An operator accepts only a
-//! token whose audience is itself, so the token the CLI sends VM2 is one VM3
+//! token whose audience is itself, so the token the CLI sends one operator is one another
 //! refuses — that is the point of the move (SPEC-133 D-36, design §10.6).
 //!
 //! The refresh token rotates on every use, and the hub treats a second use
@@ -501,12 +501,12 @@ mod tests {
     #[test]
     fn operator_resource_is_the_v1_root_of_the_fqdn() {
         assert_eq!(
-            operator_resource("019e37b4.a.airdr.es"),
-            "https://019e37b4.a.airdr.es/v1"
+            operator_resource("00000000-0000-7000-8000-000000000002.a.airdr.es"),
+            "https://00000000-0000-7000-8000-000000000002.a.airdr.es/v1"
         );
         assert_eq!(
-            operator_resource("https://019e37b4.a.airdr.es/"),
-            "https://019e37b4.a.airdr.es/v1"
+            operator_resource("https://00000000-0000-7000-8000-000000000002.a.airdr.es/"),
+            "https://00000000-0000-7000-8000-000000000002.a.airdr.es/v1"
         );
         assert_eq!(
             operator_resource("http://127.0.0.1:8080"),

@@ -202,7 +202,7 @@ mod tests {
             seq: 0,
             message_id: id.into(),
             conversation_id: conversation_row.into(),
-            from: "qa.a.airdr.es".into(),
+            from: "bob.a.airdr.es".into(),
             lane: "own".into(),
             from_self: false,
             text: format!("text {id}"),

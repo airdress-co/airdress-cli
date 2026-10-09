@@ -756,7 +756,7 @@ impl HostCore {
             // this host does not hold at all has ended (or this host
             // restarted since): `session_ended` is final, so a client stops
             // there instead of retrying a ticket that can never work (found
-            // live on VM3, 2026-10-04: `shell_resume_expired` here kept two
+            // live on a test operator, 2026-10-04: `shell_resume_expired` here kept two
             // clients reattaching 373 times in 15 s after a host restart).
             let code = if self.pending.contains_key(&session) {
                 "shell_resume_expired"
@@ -953,7 +953,7 @@ impl HostCore {
                 // chat `66f9e2d` counted a resumed leg live only once they
                 // heard a record after message 2, so after an operator
                 // restart they waited on an idle session for minutes (found
-                // live on VM3, v0.1.119, 2026-10-05).
+                // live on a test operator, v0.1.119, 2026-10-05).
                 let roles = s.roles("resumed");
                 // Structured events sent while the leg was away are not in
                 // the journal: the transcript says where things are now.
@@ -1298,7 +1298,7 @@ impl HostCore {
         // Steps 2–4 run on EVERY session, whether or not the device is
         // attached to it now. The operator closes a revoked device's legs
         // before it tells the host, so by the time this runs the device is
-        // usually no longer a client anywhere (found live on VM3,
+        // usually no longer a client anywhere (found live on a test operator,
         // 2026-10-04: `legs=0`, and nothing rekeyed or rolled). What D-24
         // protects does not depend on the leg: a running recording is
         // wrapped to every device of the person at its segment's start,
@@ -1777,7 +1777,7 @@ impl HostCore {
         // reads `host_stopping`; the channel is ordered, so the records
         // queued ahead of that frame reach the devices and the frame does
         // not overtake them. In the other order the clients only saw their
-        // legs go (found live on VM3, 2026-10-04: "connection lost;
+        // legs go (found live on a test operator, 2026-10-04: "connection lost;
         // reconnecting…" where "the host is stopping" was owed).
         let ids: Vec<Uuid> = self.sessions.keys().copied().collect();
         let mut done = Vec::new();

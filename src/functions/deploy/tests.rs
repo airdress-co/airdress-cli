@@ -599,7 +599,7 @@ async fn a_lapsed_machine_approval_is_its_own_stop() {
 #[test]
 fn the_confirmations_say_what_design_section_three_three_says() {
     let replace = replace_text(
-        "019e2b8c.a.airdr.es",
+        "00000000-0000-7000-8000-000000000001.a.airdr.es",
         "relay-v2",
         Some(BASE),
         Some("serving since 2026-09-25T13:29:00Z, signed by machine ci"),
@@ -610,7 +610,7 @@ fn the_confirmations_say_what_design_section_three_three_says() {
     );
     assert_eq!(
         replace,
-        "Deploy relay-v2 on 019e2b8c.a.airdr.es\n\
+        "Deploy relay-v2 on 00000000-0000-7000-8000-000000000001.a.airdr.es\n\
          \x20 replace  sha256:aaaa  (serving since 2026-09-25T13:29:00Z, signed by machine ci)\n\
          \x20 with     sha256:9f2c  (3 files; 1 not reached by an import)\n\
          \x20 signed by key 8a88…6f5c (this workstation) — a member of this function's signers\n\

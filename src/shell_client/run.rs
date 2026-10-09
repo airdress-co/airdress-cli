@@ -25,7 +25,7 @@
 //! jitter), and **a definitive answer ends the run** instead of starting
 //! the ladder again: the session or the host is gone, the host said it is
 //! stopping, or the full reattach at the bottom of the ladder was itself
-//! refused. Found live on VM3 (2026-10-04): after a host restart the
+//! refused. Found live on a test operator (2026-10-04): after a host restart the
 //! reattach was refused, the client went back to the top with no wait, and
 //! two clients made 373 attempts in about 15 s without ever saying the
 //! session had ended.

@@ -217,7 +217,7 @@ async fn a_resume_within_a_live_leg_needs_no_handshake_and_loses_nothing() {
 }
 
 /// An idle session resumed (an operator restart under it, found live on
-/// VM3 v0.1.119, 2026-10-05): the host has no new output, so it says who
+/// a test operator on v0.1.119, 2026-10-05): the host has no new output, so it says who
 /// has input, to the resumed device alone. Without it a client waiting to
 /// hear the host before it counts the leg live waits for ever.
 #[tokio::test]
@@ -657,7 +657,7 @@ async fn stopping_tells_everyone_kills_within_the_grace_and_closes_4001() {
 
 /// AC-13: the operator ends every leg of a host the moment it reads the
 /// host's `host_stopping` frame, so the clients' own `host_stopping` must
-/// already be ahead of it on the channel. Live on VM3 (2026-10-04) it was
+/// already be ahead of it on the channel. Live on a test operator (2026-10-04) it was
 /// not, and both clients said "connection lost; reconnecting…".
 #[tokio::test]
 async fn the_clients_hear_the_host_is_stopping_before_the_operator_does() {

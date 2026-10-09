@@ -780,7 +780,7 @@ pub fn inner_file() -> InnerFile {
         },
         Message::Error {
             code: "shell_input_not_held".into(),
-            message: "Input is on jefe-laptop. Take input?".into(),
+            message: "Input is on my-laptop. Take input?".into(),
         },
     ];
     InnerFile {

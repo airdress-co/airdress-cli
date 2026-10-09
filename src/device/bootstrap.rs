@@ -392,14 +392,14 @@ mod tests {
             &sess_pk,
             "alice.test",
             "test device",
-            "019e2b8c-7f41-7a3d-9c02-2f6b5d1a44e0",
+            "01234567-89ab-7cde-8f01-23456789abcd",
         );
         let obj = delegation.as_object().expect("delegation is an object");
 
         assert_eq!(obj["airdress"], "alice.test");
         assert_eq!(obj["device_label"], "test device");
         assert_eq!(obj["role"], "human_held");
-        assert_eq!(obj["device_id"], "019e2b8c-7f41-7a3d-9c02-2f6b5d1a44e0");
+        assert_eq!(obj["device_id"], "01234567-89ab-7cde-8f01-23456789abcd");
         assert!(obj.contains_key("issued_at"));
         assert!(obj.contains_key("expires_at"));
         assert!(obj.contains_key("signature"));
@@ -520,7 +520,7 @@ mod tests {
             &[9u8; 32],
             "alice.test",
             "test device",
-            "019e2b8c-7f41-7a3d-9c02-2f6b5d1a44e0",
+            "01234567-89ab-7cde-8f01-23456789abcd",
         );
         let obj = delegation.as_object().expect("delegation is an object");
 
@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn device_id_is_carried_verbatim_and_not_derived_from_the_session_key() {
         let root_key = SigningKey::from_bytes(&[5u8; 32]);
-        const DEVICE_ID: &str = "019e2b8c-7f41-7a3d-9c02-2f6b5d1a44e0";
+        const DEVICE_ID: &str = "01234567-89ab-7cde-8f01-23456789abcd";
 
         let first = build_delegation(&root_key, &[1u8; 32], "alice.test", "laptop", DEVICE_ID);
         // A second bootstrap: fresh session keypair, same stored device id.

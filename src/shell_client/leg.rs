@@ -297,7 +297,7 @@ pub fn jitter(d: Duration) -> Duration {
 /// Exponential backoff with jitter, for every path that reconnects to a
 /// session (design §6.5, §7.3).
 ///
-/// Found live on VM3 (2026-10-04): after a host restart two CLIs retried
+/// Found live on a test operator (2026-10-04): after a host restart two CLIs retried
 /// with no wait at all between a refused resume and the reattach that
 /// followed it, 373 refusals in about 15 s. Every attempt now waits
 /// [`Backoff::wait`], which doubles from `base` to `cap`; a leg that comes

@@ -221,7 +221,7 @@ mod bridge {
         /// Every frame the host sent, in order.
         pub frames: Vec<Value>,
         /// End every leg of the host on its `host_stopping` frame, as
-        /// operators before v0.1.117 did (VM3 ran one on 2026-10-04).
+        /// operators before v0.1.117 did (a test operator ran one on 2026-10-04).
         pub end_legs_on_stopping: bool,
         /// Restarted, and the host has not listed its sessions since: an
         /// attach is `503 shell_host_offline`, as the operator answers.
@@ -690,7 +690,7 @@ async fn run_session(
 }
 
 /// AC-11's replay, end to end: `recordings play` lists on its connection
-/// and then fetches on the same one. Live on VM3 (2026-10-04) it timed out
+/// and then fetches on the same one. Live on a test operator (2026-10-04) it timed out
 /// every time, and the host logged nothing: the fetch waited for a second
 /// snapshot that never comes, so it was never sent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -781,7 +781,7 @@ async fn stop_case(end_legs_on_stopping: bool) {
     assert_eq!(l.host.await.unwrap().unwrap(), 0);
 }
 
-/// An operator restart under an idle session (found live on VM3, v0.1.119,
+/// An operator restart under an idle session (found live on a test operator, v0.1.119,
 /// 2026-10-05): the clients were told `503 shell_host_offline`, resumed on a
 /// new leg once the host was back, and the host admitted the resume, but
 /// then stayed on "reconnecting…" for minutes, refusing input as "not

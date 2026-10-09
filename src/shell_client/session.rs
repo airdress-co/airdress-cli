@@ -187,7 +187,7 @@ impl ClientSession {
     /// A resume's message 2 is the host heard: it answered the ticket with
     /// this session's resume secret, and its own record layer is keyed by it.
     /// Waiting for a record after it instead deadlocked an idle session
-    /// (found live on VM3, v0.1.119, 2026-10-05): the host had nothing new
+    /// (found live on a test operator, v0.1.119, 2026-10-05): the host had nothing new
     /// to send after an operator restart, so the client stayed on
     /// "reconnecting…" and refused input for minutes.
     pub fn is_live(&self) -> bool {

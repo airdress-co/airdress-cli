@@ -42,7 +42,7 @@ use airdress::shell_client::api::ShellApi;
 use airdress::shell_client::run::{self, Command, Conn, Front, Outcome};
 use airdress::shell_client::session::{ClientSession, Target};
 
-const AIRDRESS: &str = "019e0000-test.a.airdr.es";
+const AIRDRESS: &str = "00000000-test.a.airdr.es";
 const MACHINE: &str = "7bcf8051-0000-4000-8000-000000000001";
 const CLI: &str = "6f1c2a8e-0d4b-4c43-9a51-2f7d8e9b0c11";
 const PHONE: &str = "phone-1";
@@ -862,7 +862,7 @@ fn said(out: &Captured, kind: &str) -> usize {
     out.lines().iter().filter(|v| v["type"] == kind).count()
 }
 
-/// After a host restart the session is gone. Found live on VM3 (2026-10-04):
+/// After a host restart the session is gone. Found live on a test operator (2026-10-04):
 /// two clients retried 373 times in about 15 s and never said the session
 /// had ended. Now the ladder runs once — the ticket, the reattach — each
 /// step after a wait, and the refused reattach ends the run with a reason.

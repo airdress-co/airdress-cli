@@ -152,7 +152,7 @@ async fn until<T>(
 /// Wait until the channel is live: the host admitted this attach and sent
 /// its snapshot. Once only: a connection that is already live is not sent
 /// another snapshot, and waiting for one is what made `recordings play`
-/// time out with a live session (found live on VM3, 2026-10-04: `ls`
+/// time out with a live session (found live on a test operator, 2026-10-04: `ls`
 /// answered, `play` — which lists first on the same connection — never did,
 /// and the host logged nothing, because the fetch was never sent).
 async fn live(conn: &mut Conn, epoch: std::time::Instant) -> Result<()> {

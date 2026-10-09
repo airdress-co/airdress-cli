@@ -506,7 +506,7 @@ mod tests {
         }
     }
 
-    /// The live S5 case (VM3, 2026-10-05): two sessions on one agent
+    /// The live S5 case (a test operator, 2026-10-05): two sessions on one agent
     /// device ack the same message; one of them ends 5 ms after its ack is
     /// accepted, so by the time the recipient looks it is no longer
     /// listed. Its device is, through the other session.

@@ -70,7 +70,7 @@ impl Emulator {
     /// screen is first scrolled up by as many lines, and the cursor put back
     /// on the line it was on. Without this, a session resized from a tall
     /// phone to a laptop sent every later attach a snapshot without its
-    /// visible screen (found live on VM3, 2026-10-04: the CLI drew the
+    /// visible screen (found live on a test operator, 2026-10-04: the CLI drew the
     /// scrollback and a fresh prompt, and none of the lines the phone
     /// showed).
     ///
@@ -198,7 +198,7 @@ impl Emulator {
                 let mut push = rows;
                 if wrapped {
                     // The newest history line wraps into the screen's first
-                    // row (found on VM3, 2026-10-05: the top row's `te +%T)`
+                    // row (found on a test operator, 2026-10-05: the top row's `te +%T)`
                     // of `echo seg0-line $(date +%T)` was gone after a
                     // reattach). One blank written past the last column
                     // wraps the client's row as well, and moves the cursor
@@ -336,7 +336,7 @@ mod tests {
     /// A line the terminal wrapped, split across the history/screen
     /// boundary: its start is the last scrollback row, its continuation the
     /// first screen row. A reattached client must show the continuation and
-    /// keep the two rows one logical line. On VM3 (2026-10-05) a phone's
+    /// keep the two rows one logical line. On a test operator (2026-10-05) a phone's
     /// top row lost `te +%T)` of `echo seg0-line $(date +%T)` this way.
     #[test]
     fn a_line_wrapped_across_the_history_boundary_comes_back_whole() {
@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(d.cursor(), e.cursor());
     }
 
-    /// The VM3 case end to end, in the style of the reattach test above: a
+    /// The test-operator case end to end, in the style of the reattach test above: a
     /// typist on a tall phone, the session moved to a shorter terminal, then
     /// a client attaches. What it draws from the snapshot must be what a
     /// terminal that saw the whole stream and was resized the same way
