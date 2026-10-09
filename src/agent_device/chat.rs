@@ -242,8 +242,12 @@ impl Chat {
         // revocation lookup is registered (airdress-mls 0.3.0, fail
         // closed): the operator answers it for every member here.
         engine.set_v2_cutover();
+        // Each member is asked of its own airdress's operator (owner
+        // decision (a), 2026-10-08): this one with the bearer, any other at
+        // its own name with no credential.
         engine.set_revocation_lookup(super::revocation::OperatorRevocation::of_operator(
             &creds.operator,
+            &creds.airdress,
             creds.token.clone(),
         ));
         self.roots
@@ -252,6 +256,9 @@ impl Chat {
             .insert(creds.airdress.clone(), creds.root_public);
         let roots = Arc::clone(&self.roots);
         engine.set_root_key_lookup(Arc::new(move |airdress: &str| {
+            // Check 2 names the member's airdress right before check 5 asks
+            // about its device, on this thread: say whose device it is.
+            super::revocation::note_subject(airdress);
             roots.read().ok().and_then(|r| r.get(airdress).copied())
         }));
         let dir = self.chat_dir();
