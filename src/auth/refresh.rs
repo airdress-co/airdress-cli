@@ -187,7 +187,7 @@ pub(crate) async fn ensure_fresh_with<R: TokenRefresher>(
     })
 }
 
-fn needs_refresh(expires_at: &str) -> Result<bool> {
+pub(crate) fn needs_refresh(expires_at: &str) -> Result<bool> {
     let exp: DateTime<Utc> = DateTime::parse_from_rfc3339(expires_at)
         .map_err(|e| anyhow!("invalid expires_at '{expires_at}': {e}"))?
         .with_timezone(&Utc);

@@ -20,6 +20,13 @@
 //! a process hands a legacy token out, it says so on stderr
 //! ([`legacy_notice`]), and the MCP server repeats it to the model
 //! (SPEC-133 133-H.16).
+//!
+//! When such a token runs out and a person is at the terminal, the profile
+//! is signed in again through the hub, once, instead of being refreshed at
+//! the identity provider (SPEC-142 FR-3): every refresh there is a ZITADEL
+//! user-day the hub's sign-in does not cost. Without a person (the MCP
+//! server, a script, CI) nobody could finish a sign-in, so it refreshes as
+//! before and says so.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -154,14 +161,71 @@ pub async fn access_token(
     profile_name: &str,
     audience: Audience<'_>,
 ) -> Result<Redacted<String>> {
-    access_token_with(paths, profile_name, audience, &HubRefresher).await
+    access_token_moving(paths, profile_name, audience, &HubRefresher, &SignInAgain).await
 }
 
+/// Moving a legacy profile to the hub's sign-in, abstracted for tests.
+pub(crate) trait LegacyMove {
+    /// Whether a person is at the terminal to finish a sign-in.
+    fn person_present(&self) -> bool;
+    /// Sign the profile in through the hub. `Ok(false)` when the hub
+    /// offers no sign-in of its own, so there is nowhere to move to.
+    async fn move_to_hub(&self, paths: &crate::paths::Paths, profile_name: &str) -> Result<bool>;
+}
+
+/// The real one: `airdress auth login`, as the person would have run it.
+#[derive(Debug)]
+pub(crate) struct SignInAgain;
+
+impl LegacyMove for SignInAgain {
+    fn person_present(&self) -> bool {
+        use std::io::IsTerminal as _;
+        std::io::stdin().is_terminal() && std::io::stderr().is_terminal()
+    }
+
+    async fn move_to_hub(&self, paths: &crate::paths::Paths, profile_name: &str) -> Result<bool> {
+        let profile = storage::read_profile(paths, profile_name)?;
+        let server = super::discovery::resolve_login_server(&profile.endpoint).await?;
+        if !matches!(server, super::discovery::LoginServer::Hub(_)) {
+            return Ok(false);
+        }
+        eprintln!(
+            "airdress: notice: profile {profile_name}'s sign-in at the identity provider has run              out; signing it in through the hub instead, once (it will not be asked again)"
+        );
+        super::login::run_with_opts(paths, Some(profile_name), Default::default()).await?;
+        Ok(true)
+    }
+}
+
+/// Never moves: the second pass after a move, so a profile that is somehow
+/// still legacy cannot loop back into another sign-in; and tests.
+pub(crate) struct NeverMove;
+
+impl LegacyMove for NeverMove {
+    fn person_present(&self) -> bool {
+        false
+    }
+    async fn move_to_hub(&self, _: &crate::paths::Paths, _: &str) -> Result<bool> {
+        Ok(false)
+    }
+}
+
+#[cfg(test)]
 pub(crate) async fn access_token_with<R: ResourceRefresher>(
     paths: &crate::paths::Paths,
     profile_name: &str,
     audience: Audience<'_>,
     refresher: &R,
+) -> Result<Redacted<String>> {
+    access_token_moving(paths, profile_name, audience, refresher, &NeverMove).await
+}
+
+pub(crate) async fn access_token_moving<R: ResourceRefresher, M: LegacyMove>(
+    paths: &crate::paths::Paths,
+    profile_name: &str,
+    audience: Audience<'_>,
+    refresher: &R,
+    mover: &M,
 ) -> Result<Redacted<String>> {
     let profile = storage::read_profile(paths, profile_name)?;
     match &profile.auth {
@@ -180,7 +244,29 @@ pub(crate) async fn access_token_with<R: ResourceRefresher>(
             refresh_resource(paths, profile_name, &resource, refresher).await
         }
         // Legacy: one ZITADEL token, whatever the audience. Said, once.
-        Some(auth @ AuthConfig::DeviceFlow { .. }) => {
+        Some(auth @ AuthConfig::DeviceFlow { expires_at, .. }) => {
+            // Run out, and somebody to sign in: move to the hub rather than
+            // refresh at the identity provider. A sign-in that fails or is
+            // abandoned leaves the profile as it was, and the refresh below
+            // still serves this command.
+            if refresh::needs_refresh(expires_at)? && mover.person_present() {
+                match mover.move_to_hub(paths, profile_name).await {
+                    Ok(true) => {
+                        return Box::pin(access_token_moving(
+                            paths,
+                            profile_name,
+                            audience,
+                            refresher,
+                            &NeverMove,
+                        ))
+                        .await;
+                    }
+                    Ok(false) => {}
+                    Err(e) => eprintln!(
+                        "airdress: warning: signing profile {profile_name} in through the hub                          failed ({e:#}); refreshing its old sign-in instead"
+                    ),
+                }
+            }
             say_legacy_once(profile_name, Some(auth));
             let fresh = refresh::ensure_fresh(paths, profile_name).await?;
             match fresh.auth {
@@ -577,6 +663,105 @@ mod tests {
             storage::read_profile(paths, "p").unwrap().auth,
             Some(AuthConfig::DeviceFlow { .. })
         ));
+    }
+
+    /// A stand-in for `auth login`: writes `after` into the profile and
+    /// counts how often it was asked.
+    struct FakeMove {
+        person: bool,
+        after: Option<crate::profile::storage::Profile>,
+        calls: std::cell::Cell<usize>,
+    }
+
+    impl LegacyMove for FakeMove {
+        fn person_present(&self) -> bool {
+            self.person
+        }
+        async fn move_to_hub(&self, paths: &crate::paths::Paths, name: &str) -> Result<bool> {
+            self.calls.set(self.calls.get() + 1);
+            match &self.after {
+                Some(p) => {
+                    storage::write_profile(paths, name, p).unwrap();
+                    Ok(true)
+                }
+                None => Ok(false),
+            }
+        }
+    }
+
+    #[test]
+    fn a_run_out_legacy_profile_moves_to_the_hub_when_a_person_is_there() {
+        let (_home, paths) = storage::temp_paths();
+        let paths = &paths;
+        crate::auth::refresh::test_support::write_device_flow_profile(paths, "p", -10, "rt_1");
+        let hub = FakeHub::new("rt_0");
+        let mover = FakeMove {
+            person: true,
+            after: Some(hub_profile("rt_0", &[])),
+            calls: Default::default(),
+        };
+        let t = block_on(access_token_moving(
+            paths,
+            "p",
+            Audience::Operator("vm2.example"),
+            &hub,
+            &mover,
+        ))
+        .unwrap();
+        assert_eq!(mover.calls.get(), 1);
+        // The token comes from the hub, for that operator alone.
+        assert_eq!(t.expose(), "at[https://vm2.example/v1]#1");
+        assert!(matches!(
+            storage::read_profile(paths, "p").unwrap().auth,
+            Some(AuthConfig::Hub { .. })
+        ));
+    }
+
+    #[test]
+    fn a_live_legacy_token_is_used_without_a_sign_in() {
+        let (_home, paths) = storage::temp_paths();
+        let paths = &paths;
+        crate::auth::refresh::test_support::write_device_flow_profile(paths, "p", 600, "rt_1");
+        let mover = FakeMove {
+            person: true,
+            after: Some(hub_profile("rt_0", &[])),
+            calls: Default::default(),
+        };
+        let t = block_on(access_token_moving(
+            paths,
+            "p",
+            Audience::Hub,
+            &FakeHub::new("unused"),
+            &mover,
+        ))
+        .unwrap();
+        assert_eq!(t.expose(), "at_old");
+        assert_eq!(mover.calls.get(), 0, "nothing ran out, so nothing is asked");
+    }
+
+    #[test]
+    fn a_sign_in_that_leaves_the_profile_legacy_is_not_asked_for_twice() {
+        let (_home, paths) = storage::temp_paths();
+        let paths = &paths;
+        crate::auth::refresh::test_support::write_device_flow_profile(paths, "p", -10, "rt_1");
+        // The "sign-in" writes a live legacy profile: still not a hub one.
+        crate::auth::refresh::test_support::write_device_flow_profile(paths, "live", 600, "rt_2");
+        let still_legacy = storage::read_profile(paths, "live").unwrap();
+        let mover = FakeMove {
+            person: true,
+            after: Some(still_legacy),
+            calls: Default::default(),
+        };
+        let t = block_on(access_token_moving(
+            paths,
+            "p",
+            Audience::Hub,
+            &FakeHub::new("unused"),
+            &mover,
+        ))
+        .unwrap();
+        assert_eq!(mover.calls.get(), 1, "one sign-in, never a loop of them");
+        assert_eq!(t.expose(), "at_old");
     }
 
     #[test]
