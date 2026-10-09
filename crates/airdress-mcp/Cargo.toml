@@ -1,6 +1,6 @@
 [package]
 name = "airdress-mcp"
-version = "0.1.3"
+version = "0.1.4"
 description = "Airdress over MCP: query your airdresses and run your functions dev loop from an editor"
 edition.workspace = true
 rust-version.workspace = true
@@ -15,7 +15,7 @@ workspace = true
 # the server with an egress allowlist of the mock hub and operator
 # (SPEC-133 FR-112).
 [dependencies]
-airdress = { version = "0.1.3", path = "../.." }
+airdress = { version = "0.1.4", path = "../.." }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "time", "signal"] }

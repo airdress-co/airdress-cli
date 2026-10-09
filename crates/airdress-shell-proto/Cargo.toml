@@ -1,6 +1,6 @@
 [package]
 name = "airdress-shell-proto"
-version = "0.1.3"
+version = "0.1.4"
 description = "End-to-end protocol for Airdress shells: handshake, records, inner messages, presence and recording encryption"
 edition.workspace = true
 rust-version.workspace = true

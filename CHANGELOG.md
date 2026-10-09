@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/airdress-co/airdress-cli/compare/v0.1.3...v0.1.4) - 2026-10-09
+
+### Added
+
+- *(auth)* A run-out v1 profile moves to the hub instead of refreshing
+
+### Fixed
+
+- *(agent)* Check 5 asks the operator of the member's own airdress
+
+### Other
+
+- *(lint)* A changelog heading may repeat across versions
+
 ## [0.1.3](https://github.com/airdress-co/airdress-cli/compare/v0.1.2...v0.1.3) - 2026-10-08
 
 ### Fixed
