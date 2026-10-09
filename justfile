@@ -31,8 +31,22 @@ hooks-install:
 hooks-update:
     prek autoupdate
 
+# Build and publish an existing tag by hand. Normally release-plz does this:
+# merging its release pull request tags main and dispatches release.yml.
 release tag:
     gh workflow run release.yml -f tag={{tag}}
+
+# Preview the next release locally: the version and CHANGELOG.md entry the
+# release pull request would carry. Edits the working tree; `git checkout .`
+# undoes it.
+release-preview:
+    release-plz update
+
+# Commit the staged change as airdress-bot, signed by GitHub, through the Git
+# Data API (airdress-ops' scripts/bot-commit.sh). The local commit is a draft
+# the bot re-creates, which is the choice `AIRDRESS_COMMIT_AS=bot` records.
+bot-commit message:
+    AIRDRESS_COMMIT_AS=bot "${AIRDRESS_OPS:-../airdress-ops}/scripts/bot-commit.sh" {{ quote(message) }}
 
 # Serve the tool catalogue over stdio, as an editor would start it.
 mcp-serve *args:

@@ -268,3 +268,8 @@ endgroup
 messense
 ojson
 setfd
+autosquash
+Lindstaedt
+Lindstädt
+stripspace
+valueonly

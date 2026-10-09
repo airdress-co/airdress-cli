@@ -1,0 +1,8 @@
+# The repository owner's git identities, one per line: `name:<name>` or
+# `email:<address>`. A commit whose author or committer matches any of them
+# needs an explicit choice to be recorded as the owner's (see
+# CONTRIBUTING.md, "Who commits"). Names compare case-insensitively after
+# Unicode normalization; addresses compare case-insensitively.
+name:Robert Jefe Lindstaedt
+name:Robert Jefe Lindstädt
+email:robert.lindstaedt@gmail.com

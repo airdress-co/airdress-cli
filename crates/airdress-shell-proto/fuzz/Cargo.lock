@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "airdress-shell-proto"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "base64",
  "chacha20poly1305",

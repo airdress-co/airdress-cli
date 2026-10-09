@@ -1,5 +1,6 @@
 # `prek install` installs both stages: the hooks below run at pre-commit,
-# and commit-attribution runs at commit-msg, where the message exists.
+# and commit-attribution and conventional-commit run at commit-msg, where
+# the message exists.
 default_install_hook_types: [pre-commit, commit-msg]
 default_stages: [pre-commit]
 
@@ -59,7 +60,7 @@ repos:
         pass_filenames: false
 
       - id: commit-attribution
-        name: no commit attributed to an AI assistant
+        name: commit attribution (no AI assistant, an explicit committer)
         entry: scripts/check-commit-attribution.py commit-msg
         language: system
         stages: [commit-msg]
@@ -68,5 +69,20 @@ repos:
         name: commit-attribution fixtures
         entry: scripts/check-commit-attribution-test.sh
         language: system
-        files: ^scripts/check-commit-attribution
+        files: ^scripts/(check-commit-attribution|owner-identities)
+        pass_filenames: false
+
+      # Conventional commits: release-plz reads the history to choose the
+      # next version and write CHANGELOG.md.
+      - id: conventional-commit
+        name: conventional commit message
+        entry: scripts/check-conventional-commit.py commit-msg
+        language: system
+        stages: [commit-msg]
+
+      - id: conventional-commit-fixtures
+        name: conventional-commit fixtures
+        entry: scripts/check-conventional-commit-test.sh
+        language: system
+        files: ^scripts/check-conventional-commit
         pass_filenames: false

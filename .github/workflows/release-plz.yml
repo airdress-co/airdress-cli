@@ -1,0 +1,95 @@
+name: Release-plz
+# Conventional commits on main become a release pull request (the next
+# version and its CHANGELOG.md entry). Merging that pull request tags the
+# release, and the tag is handed to release.yml, which builds every target
+# twice, byte-compares the builds and publishes. See release-plz.toml.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  release:
+    name: Release-plz release
+    if: github.repository_owner == 'airdress-co'
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Dispatching release.yml with the job's own token.
+      actions: write
+    steps:
+      # The bot's token: a tag it creates is the bot's, and it may push past
+      # the ruleset on main.
+      - uses: actions/create-github-app-token@v1
+        id: bot
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # cargo metadata only: the git dependencies are public, so the
+      # private-deps action (whose url rewrite would also catch this
+      # repository's own remote) is not needed here.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - name: Tag a merged release pull request
+        id: release-plz
+        uses: release-plz/action@d6c56271d640b6c1b61d1e00593641c400a9f4bd # v0.5.138
+        with:
+          command: release
+          version: "0.3.168"
+        env:
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}
+      - name: Hand the tag to release.yml
+        if: steps.release-plz.outputs.releases_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASES: ${{ steps.release-plz.outputs.releases }}
+        run: |
+          # One product version: only `airdress` is tagged.
+          TAG=$(jq -r '[.[] | select(.package_name == "airdress") | .tag] | first // empty' <<<"$RELEASES")
+          if [ -z "$TAG" ]; then
+            echo "release-plz released, but not airdress: $RELEASES" >&2
+            exit 1
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"
+          echo "dispatched release.yml for $TAG" >>"$GITHUB_STEP_SUMMARY"
+
+  release-pr:
+    name: Release-plz PR
+    if: github.repository_owner == 'airdress-co'
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: release-plz-pr-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      # The bot opens the pull request and commits to it (through the API, so
+      # the commit is signed), which also lets CI run on it: a pull request
+      # opened with the job's own token triggers no workflows.
+      - uses: actions/create-github-app-token@v1
+        id: bot
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - name: Open or update the release pull request
+        uses: release-plz/action@d6c56271d640b6c1b61d1e00593641c400a9f4bd # v0.5.138
+        with:
+          command: release-pr
+          version: "0.3.168"
+        env:
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}

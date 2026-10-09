@@ -12,6 +12,9 @@ cd "$WORK"
 git init -q repo
 cd repo
 git config commit.gpgsign false
+# The fixtures set the committer choice themselves; one inherited from the
+# caller's shell would change what they test.
+unset AIRDRESS_COMMIT_AS
 
 fail=0
 pass_count=0
@@ -65,6 +68,55 @@ expect fail "author at a subdomain" hook "Ada Person" "ada@mail.ANTHROPIC.com" "
 COMMITTER_NAME="Claude" expect fail "committer named Claude" hook "${PERSON[@]}" "$BODY"
 COMMITTER_EMAIL="noreply@anthropic.com" expect fail "committer at anthropic.com" hook "${PERSON[@]}" "$BODY"
 
+# --- the committer choice: the owner's identity needs AIRDRESS_COMMIT_AS.
+
+OWNER=("Robert Jefe Lindstaedt" "robert.lindstaedt@gmail.com")
+OWNER_UMLAUT=("Robert Jefe Lindstädt" "robert.lindstaedt@gmail.com")
+
+# The message file after the hook ran, as git would record it.
+recorded() { git stripspace --strip-comments < msg; }
+trailer_count() { recorded | git interpret-trailers --parse | grep -c '^Committed-As: owner$' || true; }
+expect_trailers() {
+    local want="$1" label="$2" got
+    got=$(trailer_count)
+    if [ "$got" = "$want" ]; then
+        pass_count=$((pass_count + 1))
+    else
+        echo "FAILED: $label (wanted $want Committed-As trailer(s), found $got)" >&2
+        fail=1
+    fi
+}
+
+expect fail "owner author, no choice" hook "${OWNER[@]}" "$BODY"
+expect fail "owner author spelt with an umlaut, no choice" hook "${OWNER_UMLAUT[@]}" "$BODY"
+expect fail "owner name at another address" hook "Robert Jefe Lindstaedt" "robert@example.org" "$BODY"
+expect fail "owner address under another name" hook "Somebody" "Robert.Lindstaedt@GMAIL.com" "$BODY"
+COMMITTER_NAME="Robert Jefe Lindstädt" COMMITTER_EMAIL="robert.lindstaedt@gmail.com" \
+    expect fail "owner committer only, no choice" hook "${PERSON[@]}" "$BODY"
+expect fail "the trailer alone is not a choice" hook "${OWNER[@]}" "$BODY"$'\n\nCommitted-As: owner'
+AIRDRESS_COMMIT_AS=yes expect fail "an unknown choice" hook "${OWNER[@]}" "$BODY"
+AIRDRESS_COMMIT_AS=yes expect fail "an unknown choice, other identity" hook "${PERSON[@]}" "$BODY"
+AIRDRESS_COMMIT_AS=owner expect fail "owner chosen for somebody else's commit" hook "${PERSON[@]}" "$BODY"
+AIRDRESS_COMMIT_AS=owner expect fail "owner chosen, but a Claude trailer" \
+    hook "${OWNER[@]}" "$BODY"$'\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+expect_trailers 0 "no trailer added to a refused message"
+
+AIRDRESS_COMMIT_AS=owner expect pass "owner chosen" hook "${OWNER[@]}" "$BODY"
+expect_trailers 1 "owner chosen adds the trailer"
+AIRDRESS_COMMIT_AS=owner expect pass "owner chosen, trailer already there (amend)" \
+    hook "${OWNER[@]}" "$BODY"$'\n\nCommitted-As: owner'
+expect_trailers 1 "an amend keeps one trailer"
+AIRDRESS_COMMIT_AS=owner expect pass "owner chosen, with git's comment block" \
+    hook "${OWNER[@]}" "$BODY"$'\n\n# Please enter the commit message for your changes.\n# On branch main'
+expect_trailers 1 "the trailer survives comment stripping"
+AIRDRESS_COMMIT_AS=owner COMMITTER_NAME="Robert Jefe Lindstädt" COMMITTER_EMAIL="robert.lindstaedt@gmail.com" \
+    expect pass "owner chosen, owner as author and committer" hook "${OWNER[@]}" "$BODY"
+AIRDRESS_COMMIT_AS=bot expect pass "bot chosen: a draft the bot re-creates" hook "${OWNER[@]}" "$BODY"
+expect_trailers 0 "bot chosen adds no trailer"
+AIRDRESS_COMMIT_AS=bot expect pass "bot chosen, other identity" hook "${PERSON[@]}" "$BODY"
+expect pass "another person needs no choice" hook "${PERSON[@]}" "$BODY"
+expect_trailers 0 "another person gets no trailer"
+
 # --- the CI mode: real commits, checked by range.
 
 commit() {
@@ -88,6 +140,44 @@ commit "Claude" "noreply@anthropic.com" "$BODY"
 expect fail "range with a Claude author" python3 "$CHECK" range "$BASE..HEAD"
 git reset -q --hard "$BASE"
 expect pass "range after the bad commit is gone" python3 "$CHECK" range "$BASE..HEAD"
+
+owner_commit() {
+    local message="$1"
+    GIT_AUTHOR_NAME="${OWNER[0]}" GIT_AUTHOR_EMAIL="${OWNER[1]}" \
+        GIT_COMMITTER_NAME="${COMMITTER_NAME:-${OWNER_UMLAUT[0]}}" \
+        GIT_COMMITTER_EMAIL="${COMMITTER_EMAIL:-${OWNER_UMLAUT[1]}}" \
+        git commit -q --allow-empty -m "$message"
+}
+
+owner_commit "$BODY"$'\n\nCommitted-As: owner'
+expect pass "range: the owner, with the trailer" python3 "$CHECK" range "$BASE..HEAD"
+git reset -q --hard "$BASE"
+
+owner_commit "$BODY"
+expect fail "range: the owner, without the trailer" python3 "$CHECK" range "$BASE..HEAD"
+git reset -q --hard "$BASE"
+
+owner_commit "$BODY"$'\n\nCommitted-As: bot'
+expect fail "range: the owner, with another trailer value" python3 "$CHECK" range "$BASE..HEAD"
+git reset -q --hard "$BASE"
+
+owner_commit "$BODY"$'\n\nCommitted-As: owner\n\nA paragraph after it.'
+expect fail "range: a trailer that is not in the trailer block" python3 "$CHECK" range "$BASE..HEAD"
+git reset -q --hard "$BASE"
+
+# A pull request rebase-merged on GitHub: GitHub commits, the owner authored.
+COMMITTER_NAME=GitHub COMMITTER_EMAIL=noreply@github.com owner_commit "$BODY"$'\n\nCommitted-As: owner'
+expect pass "range: rebased by GitHub, owner author with the trailer" python3 "$CHECK" range "$BASE..HEAD"
+git reset -q --hard "$BASE"
+COMMITTER_NAME=GitHub COMMITTER_EMAIL=noreply@github.com owner_commit "$BODY"
+expect fail "range: rebased by GitHub, owner author without it" python3 "$CHECK" range "$BASE..HEAD"
+git reset -q --hard "$BASE"
+
+GIT_COMMITTER_NAME=GitHub GIT_COMMITTER_EMAIL=noreply@github.com \
+    GIT_AUTHOR_NAME="airdress-bot[bot]" GIT_AUTHOR_EMAIL="284437753+airdress-bot[bot]@users.noreply.github.com" \
+    git commit -q --allow-empty -m "$BODY"
+expect pass "range: the bot through the API" python3 "$CHECK" range "$BASE..HEAD"
+git reset -q --hard "$BASE"
 
 usage=0
 python3 "$CHECK" >/dev/null 2>&1 || usage=$?

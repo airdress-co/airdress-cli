@@ -51,7 +51,6 @@ it.
   `scripts/check-doc-numbers.sh` enforces it.
 - **A discarded `Result` says why.** `.log_warn("…")` or
   `.log_debug("…")`, never `let _ =`.
-- Commit messages: imperative subject, say what changed and why.
 - **Commits are attributed to people, or to our bot.** No
   `Co-Authored-By` trailer naming Claude or Anthropic, no
   `@anthropic.com` address in a message, and no author or committer
@@ -60,6 +59,69 @@ it.
   (installed by `just hooks-install`, through `.githooks/commit-msg`)
   and CI runs it over every pushed commit. Its fixtures are in
   `scripts/check-commit-attribution-test.sh`.
+
+## Commit messages
+
+Every commit is a [conventional commit](https://www.conventionalcommits.org/en/v1.0.0/),
+because the history is what decides the next version:
+
+```text
+<type>[(<scope>)][!]: <subject>
+
+<body: what changed and why>
+
+[BREAKING CHANGE: <what breaks, and what to do about it>]
+```
+
+- **type** is one of `feat`, `fix`, `docs`, `refactor`, `perf`, `test`,
+  `build`, `ci`, `chore`, `revert`.
+- **scope** is free: the area the change is in, e.g. `feat(shell): ...`,
+  `fix(mcp): ...`, `build(release): ...`.
+- **subject** is imperative and short; the header is at most 100
+  characters. Document numbers stay out of the subject; the body may cite
+  them.
+- **breaking**: `!` before the colon, or a `BREAKING CHANGE:` footer.
+
+`scripts/check-conventional-commit.py` refuses anything else at
+`commit-msg`, and CI runs it over every pushed commit (fixtures:
+`scripts/check-conventional-commit-test.sh`). `fixup!` and `squash!`
+commits pass the hook, and CI refuses them, so fold them in with
+`git rebase --autosquash` before a pull request lands.
+
+## Who commits
+
+A commit made under the owner's own git identity (listed in
+`scripts/owner-identities.txt`) is refused unless the person or the agent
+committing chose, for that commit, who commits it:
+
+```sh
+# The owner commits it. The hook adds a `Committed-As: owner` trailer.
+AIRDRESS_COMMIT_AS=owner git commit
+
+# The bot commits it: airdress-bot re-creates the staged change through the
+# Git Data API, signed by GitHub.
+just bot-commit "fix(shell): say why the host refused"
+```
+
+Set the variable for one command, never in a shell profile: it is the
+record of a decision about one commit. CI checks pushed commits the same
+way: under the owner's identity only with the `Committed-As: owner`
+trailer; the bot's commits always pass. Other identities need no choice,
+and naming `owner` for one of them is refused.
+
+## Releases
+
+[release-plz](https://release-plz.dev/) reads the conventional commits on
+`main` and keeps a release pull request open with the next version and its
+`CHANGELOG.md` entry. In `0.x`, a `fix` or a `feat` bumps the patch and a
+breaking change bumps the minor. Every crate carries the one product version
+(`release-plz.toml`). Merging the release pull request tags `v<version>`,
+and the release-plz workflow hands that tag to `release.yml`, which builds
+every target twice, compares the builds byte for byte and publishes.
+Nothing is published to crates.io.
+
+`just release-preview` shows locally what the next release pull request
+would carry.
 
 ## A new tool in the MCP catalogue
 

@@ -1,6 +1,6 @@
 [package]
 name = "airdress-term"
-version = "0.1.0"
+version = "0.1.3"
 description = "A terminal screen model for Airdress shell clients: VT parsing and a cell grid over a C ABI"
 edition.workspace = true
 rust-version.workspace = true

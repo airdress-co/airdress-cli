@@ -1,0 +1,73 @@
+# release-plz: conventional commits on main become the next version and its
+# CHANGELOG.md entry. It opens a release pull request; merging it tags the
+# release, and the release-plz workflow then dispatches release.yml, which
+# builds, byte-compares the two builds and publishes. Nothing goes to
+# crates.io.
+#
+# One product version. The binaries a person downloads (`airdress`,
+# `airdress-agent`, `airdress-mcp`) carry one version, so every crate in the
+# workspace is in one `version_group` and only `airdress` is tagged, as
+# `v<version>`, the tags this repository has always used.
+#
+# Versions come from those tags (`git_only`), not from a registry. The tags
+# v0.1.0 to v0.1.2 were cut while every manifest still said 0.1.0, so the
+# manifests were moved to 0.1.3 by hand once, when release-plz arrived:
+# release-plz reads "local version above the tagged one" as "already bumped"
+# and proposes 0.1.3 rather than an 0.1.1 that exists. From v0.1.3 on, the
+# tag and the manifests agree and the bump follows the commits.
+
+[workspace]
+git_only = true
+git_tag_name = "v{{ version }}"
+git_tag_enable = false
+# release.yml publishes the GitHub release, with the binaries and their
+# checksums attached; release-plz only tags.
+git_release_enable = false
+# Release only when a release pull request is merged, never on an ordinary
+# push to main.
+release_always = false
+changelog_update = false
+# No library is published, so there is no public API to semver-check.
+semver_check = false
+# `cargo update --workspace` only; dependency bumps are their own change.
+dependencies_update = false
+pr_labels = ["release"]
+
+[[package]]
+name = "airdress"
+version_group = "airdress"
+git_tag_enable = true
+changelog_update = true
+changelog_path = "./CHANGELOG.md"
+changelog_include = [
+  "airdress-mcp",
+  "airdress-mcp-catalogue",
+  "airdress-shell-host",
+  "airdress-shell-mock-host",
+  "airdress-shell-proto",
+  "airdress-term",
+]
+
+[[package]]
+name = "airdress-mcp"
+version_group = "airdress"
+
+[[package]]
+name = "airdress-mcp-catalogue"
+version_group = "airdress"
+
+[[package]]
+name = "airdress-shell-host"
+version_group = "airdress"
+
+[[package]]
+name = "airdress-shell-mock-host"
+version_group = "airdress"
+
+[[package]]
+name = "airdress-shell-proto"
+version_group = "airdress"
+
+[[package]]
+name = "airdress-term"
+version_group = "airdress"

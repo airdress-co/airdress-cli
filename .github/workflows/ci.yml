@@ -39,9 +39,12 @@ jobs:
 
   attribution:
     name: Commit attribution
-    # The commit-msg hook is local and can be skipped; this is the same check
-    # over what actually arrived. A pull request is checked from its base, a
-    # push from the commit before it (a new branch or a root: everything).
+    # The commit-msg hooks are local and can be skipped; these are the same
+    # checks over what actually arrived: no AI attribution, an explicit
+    # choice behind every commit under the owner's identity, and a
+    # conventional message release-plz can read. A pull request is checked
+    # from its base, a push from the commit before it (a new branch, a root
+    # or a rewritten history: everything).
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
@@ -50,18 +53,25 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Fixtures
-        run: scripts/check-commit-attribution-test.sh
+        run: |
+          scripts/check-commit-attribution-test.sh
+          scripts/check-conventional-commit-test.sh
       - name: Pushed commits
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] ||
-              ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            scripts/check-commit-attribution.py range "$HEAD"
+              ! git cat-file -e "$BASE^{commit}" 2>/dev/null ||
+              ! git merge-base --is-ancestor "$BASE" "$HEAD"; then
+            RANGE=("$HEAD")
           else
-            scripts/check-commit-attribution.py range "$BASE..$HEAD"
+            RANGE=("$BASE..$HEAD")
           fi
+          status=0
+          scripts/check-commit-attribution.py range "${RANGE[@]}" || status=1
+          scripts/check-conventional-commit.py range "${RANGE[@]}" || status=1
+          exit "$status"
 
   cross-platform:
     name: Release targets build (${{ matrix.target }})

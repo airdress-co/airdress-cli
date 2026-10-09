@@ -1,6 +1,6 @@
 [package]
 name = "airdress-mcp-catalogue"
-version = "0.1.0"
+version = "0.1.3"
 description = "The Airdress MCP tool catalogue: names, schemas, annotations and the server instructions"
 edition.workspace = true
 rust-version.workspace = true

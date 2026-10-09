@@ -14,8 +14,8 @@ this project may not ship, and `deny.toml` lists the ones it may.
 | [aes-gcm](https://github.com/RustCrypto/AEADs) | 0.10.3 | Apache-2.0 OR MIT |
 | [aho-corasick](https://github.com/BurntSushi/aho-corasick) | 1.1.4 | Unlicense OR MIT |
 | [airdress-httpsig](https://github.com/airdress-co/airdress-httpsig) | 0.2.0 | Apache-2.0 |
-| [airdress-mls](https://github.com/airdress-co/airdress-mls) | 0.2.0 | Apache-2.0 |
-| [airdress-mls-client](https://github.com/airdress-co/airdress-mls) | 0.2.0 | Apache-2.0 |
+| [airdress-mls](https://github.com/airdress-co/airdress-mls) | 0.3.0 | Apache-2.0 |
+| [airdress-mls-client](https://github.com/airdress-co/airdress-mls) | 0.3.0 | Apache-2.0 |
 | [alacritty_terminal](https://github.com/alacritty/alacritty) | 0.26.0 | Apache-2.0 |
 | [android_system_properties](https://github.com/nical/android_system_properties) | 0.1.5 | MIT/Apache-2.0 |
 | [anstream](https://github.com/rust-cli/anstyle.git) | 1.0.0 | MIT OR Apache-2.0 |
