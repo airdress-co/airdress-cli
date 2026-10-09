@@ -246,11 +246,11 @@ airdress-httpsig = { version = "0.2.0", git = "https://github.com/airdress-co/ai
 # Seals the agent device's local chat store (the same AEAD the MLS
 # state is sealed with); only with `mls`.
 chacha20poly1305 = { version = "0.10", optional = true }
-airdress-mls = { version = "0.2.0", git = "https://github.com/airdress-co/airdress-mls", rev = "bbc54360ceb37716a6e52cd11c0ac492f9f6a4f9", optional = true }
+airdress-mls = { version = "0.3.0", git = "https://github.com/airdress-co/airdress-mls", rev = "4cb077b044a8611a6b79e8b3f569de8545016b88", optional = true }
 # The envelope pump's decisions, the conversation directory and the root
 # pins, ported from the phone (one revision with airdress-mls above, so
 # both name one engine type).
-airdress-mls-client = { version = "0.2.0", git = "https://github.com/airdress-co/airdress-mls", rev = "bbc54360ceb37716a6e52cd11c0ac492f9f6a4f9", optional = true }
+airdress-mls-client = { version = "0.3.0", git = "https://github.com/airdress-co/airdress-mls", rev = "4cb077b044a8611a6b79e8b3f569de8545016b88", optional = true }
 http = "1"
 
 # Shells (the client half): the end-to-end protocol the host, the app and
@@ -298,8 +298,8 @@ keyring = { version = "3.6", default-features = false, features = [
 tempfile = "3"
 # The other MLS member in tests/agent_chat.rs (the operator's agent), with
 # the shared helper that signs a v2 delegation. Same revision as above.
-airdress-mls = { version = "0.2.0", git = "https://github.com/airdress-co/airdress-mls", rev = "bbc54360ceb37716a6e52cd11c0ac492f9f6a4f9", features = ["test-support"] }
-airdress-mls-client = { version = "0.2.0", git = "https://github.com/airdress-co/airdress-mls", rev = "bbc54360ceb37716a6e52cd11c0ac492f9f6a4f9" }
+airdress-mls = { version = "0.3.0", git = "https://github.com/airdress-co/airdress-mls", rev = "4cb077b044a8611a6b79e8b3f569de8545016b88", features = ["test-support"] }
+airdress-mls-client = { version = "0.3.0", git = "https://github.com/airdress-co/airdress-mls", rev = "4cb077b044a8611a6b79e8b3f569de8545016b88" }
 # Verifies a CLI-signed request exactly as the operator does: same crate,
 # same exact pin as airdress-httpsig and airdress-operator.
 httpsig-hyper = "=0.0.26"

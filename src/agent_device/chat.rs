@@ -238,8 +238,14 @@ impl Chat {
         }
         let engine = super::join::open_engine(&self.store, dev)?;
         // Past the credential cutover on every live operator; the engine
-        // binds the AAD only once told.
+        // binds the AAD only once told. Past it, no leaf verifies until a
+        // revocation lookup is registered (airdress-mls 0.3.0, fail
+        // closed): the operator answers it for every member here.
         engine.set_v2_cutover();
+        engine.set_revocation_lookup(super::revocation::OperatorRevocation::of_operator(
+            &creds.operator,
+            creds.token.clone(),
+        ));
         self.roots
             .write()
             .map_err(|_| anyhow!("roots poisoned"))?

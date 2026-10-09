@@ -19,6 +19,7 @@ pub mod chat;
 pub mod chat_store;
 pub mod host;
 pub mod join;
+pub mod revocation;
 pub mod store;
 
 use std::path::PathBuf;

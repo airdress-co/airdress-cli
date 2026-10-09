@@ -51,6 +51,10 @@ struct Op {
     outbox: VecDeque<Value>,
     acked: Vec<String>,
     agent: Option<Agent>,
+    /// The revocation route's answer about the operator's agent.
+    agent_revocation: Option<(u16, Value)>,
+    /// Device ids the device asked the revocation route about.
+    revocation_asked: Vec<String>,
 }
 
 fn rfc3339(t: chrono::DateTime<chrono::Utc>) -> String {
@@ -79,6 +83,11 @@ fn the_operators_agent() -> Agent {
     )
     .unwrap();
     engine.set_v2_cutover();
+    // Past the cutover nothing verifies without a revocation lookup; the
+    // operator answers its own from its tables.
+    engine.set_revocation_lookup(std::sync::Arc::new(|_: &str| {
+        Some(airdress_mls::credential::DeviceStatus::Active)
+    }));
     let client = Client::open(engine, &dir.path().join("client"), &[0x63; 32]).unwrap();
     Agent {
         client,
@@ -268,6 +277,35 @@ async fn mock() -> (String, Arc<Mutex<Op>>) {
                                 json!({"envelope_id": uuid::Uuid::new_v4().to_string()}),
                             )
                         }
+                        ("GET", p)
+                            if p.starts_with("/v1/mls/members/") && p.ends_with("/revocation") =>
+                        {
+                            assert_eq!(
+                                headers.get("authorization").map(String::as_str),
+                                Some("Bearer device-token")
+                            );
+                            let id = p
+                                .trim_start_matches("/v1/mls/members/")
+                                .trim_end_matches("/revocation")
+                                .to_owned();
+                            s.revocation_asked.push(id.clone());
+                            if id == "operator-agent" {
+                                s.agent_revocation.clone().unwrap_or((
+                                    200,
+                                    json!({"device_id": id, "revoked": false, "kind": "operator_agent"}),
+                                ))
+                            } else if json!(id) == s.posted_device() {
+                                (
+                                    200,
+                                    json!({"device_id": id, "revoked": false, "kind": "agent_device"}),
+                                )
+                            } else {
+                                (
+                                    404,
+                                    json!({"error": {"code": "member_not_found", "message": "no"}}),
+                                )
+                            }
+                        }
                         ("POST", p) if p.ends_with("/ack") => {
                             s.acked.push(p.to_owned());
                             (204, Value::Null)
@@ -314,6 +352,8 @@ impl Op {
 
 /// The device's join request, as it asked (read back by the approval).
 static ASK: Mutex<Value> = Mutex::new(Value::Null);
+/// One test at a time: [`ASK`] is shared.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn ask(store: &AgentStore, req: Value) -> Value {
     for _ in 0..200 {
@@ -325,20 +365,26 @@ async fn ask(store: &AgentStore, req: Value) -> Value {
     panic!("the host never answered {req}");
 }
 
-#[tokio::test]
-async fn the_own_lane_round_trips_with_the_operators_agent() {
-    let (base, op) = mock().await;
+/// A device host against `base`, asked, approved and enrolled.
+async fn approved_host(
+    base: &str,
+) -> (
+    tempfile::TempDir,
+    AgentStore,
+    Token,
+    tokio::task::JoinHandle<anyhow::Result<()>>,
+) {
     let dir = tempfile::tempdir().unwrap();
     let store = AgentStore::file_only(dir.path(), AIRDRESS).unwrap();
     let cancel = Token::new();
     let task = tokio::spawn(host::run(
         store.clone(),
         HubAuth::Static {
-            base: base.clone(),
+            base: base.to_owned(),
             bearer: "account-token".into(),
         },
         Identity {
-            operator: base.clone(),
+            operator: base.to_owned(),
             label: "Agent on desk".into(),
             harness: "test-harness".into(),
         },
@@ -360,6 +406,18 @@ async fn the_own_lane_round_trips_with_the_operators_agent() {
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+
+    (dir, store, cancel, task)
+}
+
+// Multi-threaded: the engine asks the revocation route synchronously from
+// inside its calls, as it does in the binary (`#[tokio::main]`), while the
+// mock operator answers on another worker.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_own_lane_round_trips_with_the_operators_agent() {
+    let _one = SERIAL.lock().await;
+    let (base, op) = mock().await;
+    let (_dir, store, cancel, task) = approved_host(&base).await;
 
     // A conversation that is neither the lane nor assigned is refused.
     let refused = host::call(
@@ -401,6 +459,11 @@ async fn the_own_lane_round_trips_with_the_operators_agent() {
             s.heard,
             vec![(AIRDRESS.to_owned(), "hello operator".to_owned())],
             "the operator's agent joined and decrypted, bound to this airdress"
+        );
+        assert!(
+            s.revocation_asked.iter().any(|d| d == "operator-agent"),
+            "the device asked whether the operator's agent is revoked: {:?}",
+            s.revocation_asked
         );
     }
     // The pump, once the device is approved, publishes key packages so a
@@ -468,4 +531,48 @@ async fn the_own_lane_round_trips_with_the_operators_agent() {
 
     cancel.cancel();
     task.await.unwrap().unwrap();
+}
+
+/// Past the cutover a member the operator calls revoked, or cannot answer
+/// for, is refused: the first send never founds the group.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_revoked_or_unanswerable_operator_agent_is_refused() {
+    let _one = SERIAL.lock().await;
+    for answer in [
+        (
+            200,
+            json!({"device_id": "operator-agent", "revoked": true,
+                   "revoked_at": "2026-10-08T00:00:00Z", "kind": "operator_agent"}),
+        ),
+        (
+            503,
+            json!({"error": {"code": "revocation_unavailable", "message": "later"}}),
+        ),
+        (
+            404,
+            json!({"error": {"code": "member_not_found", "message": "no"}}),
+        ),
+    ] {
+        let (base, op) = mock().await;
+        op.lock().unwrap().agent_revocation = Some(answer.clone());
+        let (_dir, store, cancel, task) = approved_host(&base).await;
+        let sent = host::call(
+            &store,
+            &json!({"op": "chat.send", "conversation_id": LANE, "text": "hello operator"}),
+        )
+        .await;
+        let refused = !matches!(&sent, Ok(v) if v["ok"] == true);
+        assert!(refused, "{answer:?} -> {sent:?}");
+        {
+            let s = op.lock().unwrap();
+            assert!(s.heard.is_empty(), "{answer:?}: nothing reached the agent");
+            assert!(
+                s.revocation_asked.iter().any(|d| d == "operator-agent"),
+                "{:?}",
+                s.revocation_asked
+            );
+        }
+        cancel.cancel();
+        task.await.unwrap().unwrap();
+    }
 }
