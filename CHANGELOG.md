@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/airdress-co/airdress-cli/compare/v0.1.4...v0.1.5) - 2026-10-09
+
+### Documentation
+
+- *(contributing)* Bot-merge lands every commit as the bot, and refuses somebody else's
+
+### Build and release
+
+- *(attribution)* Point a refused merge at bot-merge
+
+### Other
+
+- Neutral names in comments and test fixtures
+
 ## [0.1.4](https://github.com/airdress-co/airdress-cli/compare/v0.1.3...v0.1.4) - 2026-10-09
 
 ### Added
