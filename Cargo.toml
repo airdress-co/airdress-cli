@@ -152,7 +152,7 @@ wildcard_imports = "allow"                   # 3
 [package]
 name = "airdress"
 version = "0.1.0"
-description = "Airdress CLI — auth, profiles, and credential management"
+description = "The Airdress CLI: your airdress from the terminal"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

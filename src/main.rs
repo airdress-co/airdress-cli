@@ -23,7 +23,7 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser)]
 #[command(
     name = "airdress",
-    about = "Airdress CLI — auth, profiles, and credential management",
+    about = "Your airdress from the terminal: sign in, see what it is doing, deploy functions, open a shell on your own machine, connect an editor",
     version = build_version(),
     propagate_version = true,
 )]
@@ -54,13 +54,12 @@ struct Cli {
 
     /// Airdress name, id, or FQDN to act on. Overrides AIRDRESS_NAME
     /// env, .airdress marker, and the profile's pinned airdress.
-    /// (SPEC-043)
     #[arg(short = 'A', long, global = true)]
     airdress: Option<String>,
 
     /// Suppress the "→ acting on …" status line in text mode.
     /// AIRDRESS_QUIET={1,true,yes,on} (case-insensitive) has the same
-    /// effect. (SPEC-043)
+    /// effect.
     #[arg(short = 'q', long, global = true)]
     quiet: bool,
 
@@ -106,7 +105,7 @@ enum Commands {
         #[command(subcommand)]
         command: AirdressCommands,
     },
-    /// Manage devices paired to your airdress (SPEC-044)
+    /// Manage devices paired to your airdress
     Device {
         /// Profile to authenticate against
         #[arg(short, long, global = true)]
@@ -116,15 +115,15 @@ enum Commands {
     },
     /// Switch the active credential profile (alias for `profile use`).
     /// To switch the active airdress, use `airdress airdress use <name>`
-    /// (or its short form `airdress a use <name>`). (SPEC-043)
+    /// (or its short form `airdress a use <name>`).
     Use {
         /// Profile name to activate
         name: String,
     },
     /// Show the resolved context (active profile + airdress + source).
-    /// Designed for shell-prompt integration. (SPEC-043)
+    /// Designed for shell-prompt integration.
     Current,
-    /// Server-side apply a manifest file against the operator. (SPEC-033)
+    /// Server-side apply a manifest file against the operator.
     Apply {
         /// Profile to authenticate against
         #[arg(short, long)]
@@ -147,7 +146,7 @@ enum Commands {
         #[arg(long, value_name = "PATH")]
         machine_key: Option<std::path::PathBuf>,
     },
-    /// Show what `apply` would change without writing. (SPEC-033)
+    /// Show what `apply` would change without writing.
     Diff {
         /// Profile to authenticate against
         #[arg(short, long)]
@@ -159,7 +158,7 @@ enum Commands {
         #[arg(long, value_name = "URL")]
         operator_url: Option<String>,
     },
-    /// List Kinds, list a Kind's resources, or read one. (SPEC-033)
+    /// List Kinds, list a Kind's resources, or read one.
     Get {
         /// Profile to authenticate against
         #[arg(short, long)]
@@ -170,7 +169,7 @@ enum Commands {
         #[arg(long, value_name = "URL")]
         operator_url: Option<String>,
     },
-    /// Show full status + conditions of one resource. (SPEC-033)
+    /// Show full status + conditions of one resource.
     Describe {
         /// Profile to authenticate against
         #[arg(short, long)]
@@ -181,7 +180,7 @@ enum Commands {
         #[arg(long, value_name = "URL")]
         operator_url: Option<String>,
     },
-    /// Hard-delete one or more resources. (SPEC-033)
+    /// Hard-delete one or more resources.
     Delete {
         /// Profile to authenticate against
         #[arg(short, long)]
@@ -421,7 +420,7 @@ enum AirdressCommands {
     /// airdress.
     ///
     /// The name argument is optional: when omitted, the current
-    /// airdress is resolved via the SPEC-043 precedence (--airdress
+    /// airdress is resolved via the usual precedence (--airdress
     /// flag > AIRDRESS_NAME env > .airdress marker > profile pin).
     Probe {
         /// Airdress name, id, or full FQDN (optional — defaults to
@@ -429,7 +428,7 @@ enum AirdressCommands {
         name: Option<String>,
     },
     /// Pin an airdress as the current/default for the active profile.
-    /// Validates against the hub at set-time. (SPEC-043)
+    /// Validates against the hub at set-time.
     Use {
         /// Airdress name, id, or FQDN to pin
         name: String,
@@ -439,7 +438,7 @@ enum AirdressCommands {
 #[derive(Debug, Subcommand)]
 enum DeviceCommands {
     /// Pair a new device (phone, chat client) to the current airdress.
-    /// Renders a QR + deeplink and waits for the scan. (SPEC-044)
+    /// Renders a QR + deeplink and waits for the scan.
     ///
     /// Requires an owner already bound to the operator — this CLI's own
     /// hub session mints the code. For an operator with no owner yet,
@@ -465,12 +464,12 @@ enum DeviceCommands {
     },
 
     /// Onboard the FIRST device on a fresh operator, using its bootstrap
-    /// token. (SPEC-056)
+    /// token.
     ///
     /// This is the one credential that can unlock an operator with no
     /// owner bound yet — `pair` cannot help here, it needs an owner
     /// already authenticated to mint a code. The release chat app is
-    /// built to never expose the bootstrap token (SPEC-005 NFR-1); this
+    /// built to never expose the bootstrap token; this
     /// is the headless-safe equivalent for a terminal you already
     /// control, not a mobile UI a phishing page can autofill.
     ///
@@ -535,7 +534,7 @@ enum TlsCommands {
     /// Force-renew the TLS certificate on the currently selected airdress
     /// operator.
     ///
-    /// Resolves the active airdress via the standard SPEC-043 precedence
+    /// Resolves the active airdress via the usual precedence
     /// (--airdress flag > AIRDRESS_NAME env > .airdress marker > profile
     /// pin), then POSTs to the operator's `/admin/tls/renew` endpoint.
     ///

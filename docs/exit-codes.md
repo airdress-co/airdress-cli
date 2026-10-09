@@ -1,9 +1,9 @@
 # Exit codes and failure output
 
-`airdress`'s exit status and its failure report are a stable contract:
-scripts, CI (`airdress-co/deploy-functions`), the editor extension and the
-MCP client read them. A code is never renumbered or reused for another
-meaning; a new kind of failure gets a new number.
+The exit status of `airdress` and its failure report are a stable
+contract: scripts, the `deploy-functions` GitHub Action, the editor
+extension and the MCP client read them. A code is never renumbered or
+reused for another meaning; a new kind of failure gets a new number.
 
 | Code | Name | Meaning | Typical causes |
 |------|------|---------|----------------|
@@ -53,17 +53,16 @@ addition to it.
 Exits `0` whether or not an update is available. `--check` is a question,
 and answering it is success; the answer is in the output (`Update
 available: a -> b`, or `"update_available": true` under `--output json`).
-Before this contract it exited `1` when an update was available, which a
-script could not tell apart from a check that failed to reach the index —
-the failure it most needs to notice.
+A non-zero exit from `--check` means the check itself failed, which is the
+case a script most needs to notice.
 
 ## Exceptions
 
 - **`airdress shell`** ends with the **remote program's own exit status**,
-  passed through unchanged (as `ssh` does), so `airdress shell -- make test`
-  works in a script. A failure of the shell client itself (before the
-  program ran, or the session was lost) uses the codes above, but a remote
-  program may exit with any of `1`–`255`, including those numbers.
+  passed through unchanged, as `ssh` does. A failure of the shell client
+  itself (before the program ran, or the session was lost) uses the codes
+  above, but a remote program may exit with any of `1`–`255`, including
+  those numbers.
 - **A panic** in a serving mode (`shell host`, `agent device serve`,
   `mcp serve`) exits `101`, Rust's own code for a panic.
 - **Help and `--version`** exit `0`; asking for help is not a failure.

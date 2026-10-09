@@ -2,8 +2,10 @@
 
 ## Reporting a vulnerability
 
-Email **<security@airdress.co>**. Please include what you did, what
-happened, and what you expected. A proof of concept helps; a working
+Email **<security@airdress.co>** (also published at
+[airdress.co/.well-known/security.txt](https://airdress.co/.well-known/security.txt)).
+Please include what you did, what happened, and what you expected, and the
+version from `airdress version`. A proof of concept helps; a working
 exploit against somebody else's airdress is not needed and not wanted.
 
 We answer within three working days, and we will tell you plainly
@@ -28,8 +30,10 @@ machine, under the user's own account.
   `Redacted<T>`, and an escape from that wrapper is a bug, whatever it
   renders.
 - Anything that makes this software contact a host other than the
-  user's hub, the user's operators, and — for the launcher that ships
-  with the editor plugin — the two documented download origins.
+  user's hub, the user's airdresses, the release server (`airdress
+  update`), the plugin registry (`airdress plugins`), and, for the
+  launcher that ships with the editor plugin, its two documented download
+  origins.
 - Verification that can be skipped: a bundle, a signature, a Rekor
   proof, or a withdrawal list that is accepted when it should not be.
 

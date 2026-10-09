@@ -546,9 +546,8 @@ jobs:
           fetch-depth: 0
       - run: scripts/check-doc-numbers.sh
       # The tracked files, which a change can fix. The full-history scan
-      # (`--history`) is the pre-publication audit; its findings are
-      # recorded in docs/public-audit.md and decided by the owner, so it
-      # is not a gate on every pull request.
+      # (`--history`) is the pre-publication audit, run and decided by
+      # the owner, so it is not a gate on every pull request.
       - run: scripts/check-public.sh
 
       # The gitleaks BINARY, pinned and checksummed — not

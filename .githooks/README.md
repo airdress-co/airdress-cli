@@ -1,28 +1,10 @@
-# airdress-cli hooks
+# Git hooks
 
-Pre-push hook blocks direct pushes. Use `bot-commit.sh` or set
-`AIRDRESS_PUSH_OVERRIDE=1` to bypass.
+`just hooks-install` points `core.hooksPath` here and installs the
+pre-commit hooks from `.pre-commit-config.yaml`.
 
-## `bot-commit.sh` — no local copy needed here
-
-This repo has never vendored its own copy, and doesn't need one: the
-script is repo-agnostic. Every git command inside it acts on `$PWD`'s
-repository, not on the directory the script itself lives in. Run it
-from this repo's root, pointing at wherever a copy of it actually is —
-`airdress-ops` has the canonical one:
-
-```sh
-cd airdress-cli
-git add <files>
-/path/to/airdress-ops/scripts/bot-commit.sh "commit message"
-```
-
-It derives `BOT_APP_ID` / `BOT_SECRET_NAME` / `BOT_GCP_PROJECT` from
-`airdress-ops`'s platform tofu state (relative to the script's own
-location, not `$PWD`), then commits, pushes, and verifies against
-whichever repo `$PWD`'s `origin` points at — `airdress-cli` in this
-case. See the script's own header comment for the full flow and for
-what it does with any uncommitted work you weren't trying to commit.
+`pre-push` blocks a direct `git push`: changes reach `main` through a pull
+request. Set `AIRDRESS_PUSH_OVERRIDE=1` to push a feature branch.
 
 ## `commit-msg` — no commit attributed to an AI assistant
 

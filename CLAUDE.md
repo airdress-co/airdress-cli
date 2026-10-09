@@ -2,8 +2,15 @@
 
 ## What this repo is
 
-Airdress CLI — auth, profiles, credential management, and self-update.
-Rust (Cargo), async with tokio, clap for arg parsing.
+The Airdress CLI (`airdress`) and the MCP server (`airdress-mcp`): sign-in
+and profiles, airdresses, devices and machines, declarative resources,
+code-first functions, shells on the user's own machines, plugins, and the
+editor integration. Rust (Cargo), async with tokio, clap for arg parsing.
+
+README.md and `docs/` are the product's public face: task-led guides in the
+brand voice, no document numbers, no internal names. This file and the
+crates' `DESIGN-NOTES.md` are where engineering context (and SPEC numbers)
+belong.
 
 ## Common tasks
 
@@ -134,8 +141,9 @@ tested against a fake (`refresh::test_support`), never the network.
 
 `airdress update` downloads from the SPEC-024 distribution contract
 (index.json + manifest.json), verifies SHA-256 during streaming download,
-and atomically replaces the binary. `--check` exits 1 if an update is
-available. `--target <version>` pins a specific version.
+and atomically replaces the binary. `--check` exits 0 whether or not an
+update is available (the answer is in the output; see `docs/exit-codes.md`).
+`--target <version>` pins a specific version.
 
 Build-time version comes from `AIRDRESS_BUILD_VERSION` env var (set by
 the release workflow from the git tag). Falls back to `CARGO_PKG_VERSION`.

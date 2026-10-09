@@ -6,10 +6,10 @@ section: utils
 priority: optional
 maintainer: Airdress <noc@airdress.co>
 description: |
-  Airdress CLI — auth, profiles, and credential management.
+  The Airdress CLI: your airdress from the terminal.
 vendor: Airdress
 homepage: https://airdress.co
-license: MPL-2.0
+license: Apache-2.0
 contents:
   - src: ${BINARY_PATH}
     dst: /usr/bin/airdress

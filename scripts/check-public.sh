@@ -58,12 +58,10 @@ if [[ "${1:-}" != "--history" ]]; then
     for entry in "${PATTERNS[@]}"; do
         pattern="${entry%%:*}"
         what="${entry#*:}"
-        # The script's own pattern list, and the audit record that
-        # names what was found, are the two files whose job is to
-        # contain these strings.
+        # The script's own pattern list is the one file whose job is
+        # to contain these strings.
         if hits=$(git grep -nIE "$pattern" -- . \
-            ':(exclude)scripts/check-public.sh' \
-            ':(exclude)docs/public-audit.md' 2>/dev/null); then
+            ':(exclude)scripts/check-public.sh' 2>/dev/null); then
             echo "public-hygiene: found $what:" >&2
             echo "$hits" | head -20 >&2
             fail=1
