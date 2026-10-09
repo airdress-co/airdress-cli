@@ -49,17 +49,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The Linux legs are pass A of the reproducibility check below:
-          # their runner image is pinned, not `-latest`, because a gnu
-          # binary links the image's C runtime objects and pass B must be
-          # built against the same ones.
-          - target: x86_64-unknown-linux-gnu
+          # The Linux legs are pass A of the reproducibility check below.
+          # Static musl, built inside a digest-pinned cross image (the one
+          # airdress-mcp is built with), so the binaries ask nothing of the
+          # host: no glibc version, no libdbus. v0.1.2 was a gnu build on an
+          # ubuntu-24.04 runner, needed glibc 2.39 and libdbus, and did not
+          # start on Debian 12. The C toolchain is the image's, so the
+          # runner only hosts the container; both arches run on x86_64 and
+          # the image cross-compiles. `linux-smoke` below runs the result on
+          # each distribution of the stated baseline.
+          - target: x86_64-unknown-linux-musl
             runner: ubuntu-24.04
+            image: "messense/rust-musl-cross@sha256:ce75e9174325d4fbb3de85c309e2d7ca29f7500169bc4b5d2c611ff7e86d549a"
             artifact: airdress-linux-amd64
             agent_artifact: airdress-agent-linux-amd64
             deb_arch: amd64
-          - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04
+            image: "messense/rust-musl-cross@sha256:ecae5dd62d1c938c14f8071d36c16fa699860aace03bfb5284fb1216474d2643"
             artifact: airdress-linux-arm64
             agent_artifact: airdress-agent-linux-arm64
             deb_arch: arm64
@@ -99,17 +106,8 @@ jobs:
         run: cargo fetch --locked
         shell: bash
 
-      # The keyring crate (sync-secret-service) links libdbus-sys on Linux,
-      # which needs libdbus-1-dev + pkg-config. ci.yml got this (PR #21);
-      # release.yml never did, so the first release after the dbus keyring
-      # landed (alpha.19) failed the Linux legs. Both Linux targets build
-      # natively now (arm on a native arm runner), so a runner apt install
-      # is all it takes — no cross, no libdbus-sys cross-pkg-config dance.
-      - name: Install libdbus (Linux keyring dependency)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y libdbus-1-dev pkg-config
+      # No libdbus: the Linux keyring is the pure-Rust Secret Service
+      # client (Cargo.toml), so nothing in C has to be installed for it.
 
       # Pinned by commit (main as of 2026-09-24; the last release, v0.2.5, is
       # from 2023) and --locked, so the tool that builds a release is the one
@@ -128,6 +126,7 @@ jobs:
           AIRDRESS_BUILD_VERSION: ${{ needs.tag.outputs.tag }}
           AIRDRESS_BUILD_COMMIT: ${{ needs.tag.outputs.sha }}
           AIRDRESS_BUILD_TARGET: ${{ matrix.target }}
+          AIRDRESS_BUILD_IMAGE: ${{ matrix.image }}
         run: scripts/release-build.sh ${{ matrix.target }} ${{ matrix.cross && 'cross' || '' }}
         shell: bash
 
@@ -149,6 +148,7 @@ jobs:
           AIRDRESS_BUILD_VERSION: ${{ needs.tag.outputs.tag }}
           AIRDRESS_BUILD_COMMIT: ${{ needs.tag.outputs.sha }}
           AIRDRESS_BUILD_TARGET: ${{ matrix.target }}
+          AIRDRESS_BUILD_IMAGE: ${{ matrix.image }}
         run: scripts/release-build.sh --agent ${{ matrix.target }}
         shell: bash
 
@@ -175,38 +175,16 @@ jobs:
             | sudo tar -xz -C /usr/local/bin nfpm
           nfpm --version
 
-      - name: Build .deb
+      # Static binaries, so the packages declare no Depends.
+      - name: Build .debs
         if: matrix.deb_arch
         env:
           TAG: ${{ needs.tag.outputs.tag }}
-          DEB_ARCH: ${{ matrix.deb_arch }}
-          BINARY_PATH: target/${{ matrix.target }}/release/airdress
         run: |
-          DEB_VERSION="${TAG#v}"
-          export DEB_VERSION
-          # nfpm does its own envsubst on a small set of metadata fields
-          # (version, arch) but NOT on contents[].src — so ${BINARY_PATH}
-          # would land at the globber as a literal string. Expand
-          # ourselves with an explicit allowlist of vars to avoid eating
-          # unrelated `$something` strings in the YAML.
-          envsubst '$DEB_ARCH $DEB_VERSION $BINARY_PATH' < nfpm.yaml > nfpm.expanded.yaml
-          DEB_NAME="airdress_${DEB_VERSION}_${DEB_ARCH}.deb"
-          nfpm pkg --packager deb --config nfpm.expanded.yaml --target "$DEB_NAME"
-          sha256sum "$DEB_NAME" > "$DEB_NAME.sha256"
-
-      - name: Build airdress-agent .deb
-        if: matrix.deb_arch
-        env:
-          TAG: ${{ needs.tag.outputs.tag }}
-          DEB_ARCH: ${{ matrix.deb_arch }}
-          BINARY_PATH: target/${{ matrix.target }}/release/airdress-agent
-        run: |
-          DEB_VERSION="${TAG#v}"
-          export DEB_VERSION
-          envsubst '$DEB_ARCH $DEB_VERSION $BINARY_PATH' < nfpm-agent.yaml > nfpm-agent.expanded.yaml
-          DEB_NAME="airdress-agent_${DEB_VERSION}_${DEB_ARCH}.deb"
-          nfpm pkg --packager deb --config nfpm-agent.expanded.yaml --target "$DEB_NAME"
-          sha256sum "$DEB_NAME" > "$DEB_NAME.sha256"
+          scripts/package-deb.sh nfpm.yaml target/${{ matrix.target }}/release/airdress \
+            ${{ matrix.deb_arch }} "$TAG" airdress
+          scripts/package-deb.sh nfpm-agent.yaml target/${{ matrix.target }}/release/airdress-agent \
+            ${{ matrix.deb_arch }} "$TAG" airdress-agent
 
       - uses: actions/upload-artifact@v4
         with:
@@ -260,10 +238,12 @@ jobs:
   # Windows has no reproducibility claim yet.
   # ---------------------------------------------------------------------
 
-  # Pass B of `airdress` for each Linux target: the same script, the same
-  # pinned runner image as pass A (a gnu binary carries the image's crt
-  # objects, so a different image is a different input, not a second
-  # opinion), a different machine.
+  # Pass B of `airdress` and `airdress-agent` for each Linux target: the
+  # same script and the same digest-pinned build image as pass A, on a
+  # different machine and a different runner image (ubuntu-22.04 against
+  # pass A's 24.04). The C toolchain and crt objects are the build image's,
+  # so the runner's own are not an input, and a difference here is one the
+  # build would otherwise hide.
   rebuild:
     name: Rebuild ${{ matrix.artifact }} (pass B)
     needs: tag
@@ -273,12 +253,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-24.04
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-22.04
+            image: "messense/rust-musl-cross@sha256:ce75e9174325d4fbb3de85c309e2d7ca29f7500169bc4b5d2c611ff7e86d549a"
             artifact: airdress-linux-amd64
             agent_artifact: airdress-agent-linux-amd64
-          - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-22.04
+            image: "messense/rust-musl-cross@sha256:ecae5dd62d1c938c14f8071d36c16fa699860aace03bfb5284fb1216474d2643"
             artifact: airdress-linux-arm64
             agent_artifact: airdress-agent-linux-arm64
     steps:
@@ -295,16 +277,13 @@ jobs:
         with:
           app-id: ${{ secrets.CI_APP_ID }}
           app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
-      - name: Install libdbus (Linux keyring dependency)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y libdbus-1-dev pkg-config
       - name: Build
         working-directory: rebuild-src
         env:
           AIRDRESS_BUILD_VERSION: ${{ needs.tag.outputs.tag }}
           AIRDRESS_BUILD_COMMIT: ${{ needs.tag.outputs.sha }}
           AIRDRESS_BUILD_TARGET: ${{ matrix.target }}
+          AIRDRESS_BUILD_IMAGE: ${{ matrix.image }}
         run: |
           cargo fetch --locked
           scripts/release-build.sh ${{ matrix.target }}
@@ -405,9 +384,19 @@ jobs:
           done
           exit "$fail"
 
+  # The built binaries and .debs, run on every distribution of the stated
+  # Linux baseline (scripts/linux-smoke.sh), on both architectures.
+  linux-smoke:
+    name: Linux smoke
+    needs: [tag, build]
+    uses: ./.github/workflows/linux-smoke.yml
+    with:
+      ref: ${{ needs.tag.outputs.sha }}
+      version: ${{ needs.tag.outputs.tag }}
+
   release:
     name: Release
-    needs: [tag, build, compare]
+    needs: [tag, build, compare, linux-smoke]
     timeout-minutes: 10
     runs-on: ubuntu-latest
     # Never a parallel composite upload. gcloud switches to one for any file
@@ -455,9 +444,10 @@ jobs:
             sha=$(awk '{print $1}' "artifacts/${name}.sha256")
             size=$(stat --printf='%s' "$f" 2>/dev/null || stat -f '%z' "$f")
 
-            # The agent has kinds of its own: the installer and `airdress
-            # update` take the first `binary` (or `deb`) for a platform, and
-            # `airdress-agent-*` sorts before `airdress-linux-*`.
+            # The agent has kinds of its own (`agent`, `agent-deb`), and the
+            # CLI's artifacts are listed before it (see the jq below): an
+            # installer that took the first entry for a platform installed
+            # airdress-agent as `airdress` (v0.1.1, v0.1.2).
             case "$name" in
               airdress-agent_*.deb) kind="agent-deb" ;;
               airdress-agent-*)     kind="agent" ;;
@@ -485,7 +475,10 @@ jobs:
             --argjson pr "$PRE_RELEASE" \
             --arg pub "$PUBLISHED" \
             --argjson arts "$ARTIFACTS" \
-            '{schema_version: $sv, version: $v, pre_release: $pr, artifacts: $arts, published_at: $pub}' \
+            '{schema_version: $sv, version: $v, pre_release: $pr,
+              artifacts: ($arts | map(select(.kind | startswith("agent") | not))
+                                + map(select(.kind | startswith("agent")))),
+              published_at: $pub}' \
             > manifest.json
 
           cat manifest.json

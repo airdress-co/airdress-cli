@@ -273,3 +273,8 @@ Lindstaedt
 Lindstädt
 stripspace
 valueonly
+elif
+striptags
+endfor
+readelf
+zbus

@@ -1,0 +1,46 @@
+name: Linux smoke
+# Runs the Linux binaries and .debs a calling workflow built (its artifacts
+# `airdress-linux-<arch>`, `airdress-agent-linux-<arch>` and their `-deb`
+# twins) on every distribution of the stated baseline, each in a clean
+# container: Debian 12, Ubuntu 22.04 and 24.04, Fedora 40, RHEL 9 (UBI) and
+# Alpine. Called by release.yml before anything is published, and by
+# portability.yml on pull requests that can change what the release builds.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit whose scripts/linux-smoke.sh runs
+        type: string
+        required: true
+      version:
+        description: The version the binaries must report (e.g. v0.1.3); empty to skip
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Linux smoke (${{ matrix.arch }})
+    timeout-minutes: 20
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Native runners, so each container runs the binary for real
+          # rather than under emulation.
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: "{airdress-linux-${{ matrix.arch }},airdress-linux-${{ matrix.arch }}-deb,airdress-agent-linux-${{ matrix.arch }},airdress-agent-linux-${{ matrix.arch }}-deb}"
+          merge-multiple: true
+      - name: Run on each distribution
+        run: scripts/linux-smoke.sh dist "${{ inputs.version }}"

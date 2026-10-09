@@ -259,29 +259,33 @@ http = "1"
 airdress-shell-proto = { version = "0.1.3", path = "crates/airdress-shell-proto" }
 libc = "0.2"
 
-# ── Secret Service, on glibc Linux only ──────────────────────────────────────
-# `keyring`'s `sync-secret-service` feature reaches libdbus through
-# `dbus-secret-service`, and libdbus has to be built FOR THE TARGET.
-# There is no musl libdbus on a GitHub runner, so a statically linked
-# release build died in `libdbus-sys-0.2.7/build.rs` — on x86_64 as well
-# as aarch64. Measured 2026-10-04, the first time the release workflow
-# was ever exercised; it had never run, so this was latent from the day
-# it was written.
+# ── Secret Service, on every Linux build ─────────────────────────────────────
+# The pure-Rust Secret Service client (`secret-service` over `zbus`), not
+# `sync-secret-service`, which links the C libdbus. That link tied the
+# released Linux binary to the distributions it was built for: v0.1.2
+# refused to start on Debian 12 (`libdbus-1.so.3: cannot open shared object
+# file`), and libdbus has no musl build on a runner, so it also kept the
+# release off static musl.
 #
-# Scoped to `target_env = "gnu"` rather than dropped, so the split is:
+# With nothing in C behind it, one dependency serves both Linux builds:
 #
-#   * a cargo build on a Linux desktop keeps the OS keyring, which is
-#     what SPEC-054 chose and where a developer's key should live;
-#   * the statically linked binary the launcher downloads uses
-#     `device::root_key`'s file fallback, which it has always had for
-#     keyring-less hosts.
+#   * the static musl binary the installer downloads (and the .deb) keeps
+#     the OS keyring, and needs no shared library at all;
+#   * a cargo build on a Linux desktop uses the same store, so the key
+#     lives in one place whichever binary you run.
 #
-# That difference is real and is written down in docs/root-key.md, because
-# a key living somewhere else in the binary you DOWNLOAD than in the one
-# you BUILD is exactly the surprise that costs an afternoon later.
+# Same items either way: keyring's `secret_service` module is one file for
+# the sync and async backends, so the attributes an older build wrote are
+# the ones this one reads.
 #
-# The lockfile keeps the dbus crates either way — it is the union over
-# targets — so `--locked` still works for both builds.
+# `async-io`, not `tokio`: keyring's API is blocking, and zbus's blocking
+# calls under its tokio backend need (and then block) the caller's runtime,
+# which the CLI is already inside. With async-io zbus runs its own executor
+# thread. `crypto-rust` keeps the session encryption in Rust as well.
+#
+# A Linux build with neither secret-service feature would fall back to
+# keyring's in-memory mock store, whose writes "succeed" and vanish; that is
+# why this is scoped to every Linux target and not to one libc.
 # The shell host (`airdress shell host`, `shell profile`, the hook entry
 # behind `shell events`) is Unix only: pseudo-terminals, Unix sockets and
 # file modes. On Windows those subcommands say they are unsupported; the
@@ -289,9 +293,11 @@ libc = "0.2"
 [target.'cfg(unix)'.dependencies]
 airdress-shell-host = { version = "0.1.3", path = "crates/airdress-shell-host" }
 
-[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6", default-features = false, features = [
-    "sync-secret-service",
+    "async-secret-service",
+    "async-io",
+    "crypto-rust",
 ] }
 
 [dev-dependencies]

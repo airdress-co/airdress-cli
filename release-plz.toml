@@ -71,3 +71,45 @@ version_group = "airdress"
 [[package]]
 name = "airdress-term"
 version_group = "airdress"
+
+# The CHANGELOG.md entry. Sections follow the commit type, in a fixed order
+# (the `<!-- n -->` prefixes sort the groups and are stripped on output);
+# a type with no section of its own lands in "Other".
+#
+# The compare link: release-plz takes the previous version from the
+# manifest at the previous tag, and v0.1.0 to v0.1.2 were tagged while every
+# manifest said 0.1.0, so for v0.1.3 alone it would compare against v0.1.0.
+# From v0.1.3 on, tag and manifest agree and `release_link` is right.
+[changelog]
+body = """
+## [{{ version }}]\
+{%- if version == "0.1.3" -%}\
+(https://github.com/airdress-co/airdress-cli/compare/v0.1.2...v0.1.3)\
+{%- elif release_link -%}({{ release_link }}){%- endif %} \
+- {{ timestamp | date(format="%Y-%m-%d") }}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+
+{% for commit in commits -%}
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+{% if commit.breaking %}[**breaking**] {% endif %}\
+{{ commit.message | upper_first }}
+{% endfor -%}
+{% endfor %}
+"""
+commit_parsers = [
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^chore: release v", skip = true },
+  { message = "^feat", group = "<!-- 0 -->Added" },
+  { message = "^fix", group = "<!-- 1 -->Fixed" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^refactor", group = "<!-- 3 -->Changed" },
+  { message = "^revert", group = "<!-- 4 -->Reverted" },
+  { message = "^docs", group = "<!-- 5 -->Documentation" },
+  { message = "^(build|ci)", group = "<!-- 6 -->Build and release" },
+  { message = "^test", group = "<!-- 7 -->Tests" },
+  { message = ".*", group = "<!-- 8 -->Other" },
+]
+trim = false
+protect_breaking_commits = true
+sort_commits = "oldest"

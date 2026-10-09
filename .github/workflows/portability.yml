@@ -1,0 +1,103 @@
+name: Linux portability
+# A pull request that can change what the Linux release builds (the release
+# workflow, its scripts, the packaging, or the dependency set) builds the
+# static Linux binaries and .debs exactly as release.yml does, and runs
+# them on every distribution of the stated baseline (linux-smoke.yml).
+# Single pass: the double build and byte compare stay on tags.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - .github/workflows/linux-smoke.yml
+      - .github/workflows/portability.yml
+      - Cargo.lock
+      - Cargo.toml
+      - nfpm.yaml
+      - nfpm-agent.yaml
+      - scripts/release-build.sh
+      - scripts/package-deb.sh
+      - scripts/linux-smoke.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The same targets and images as release.yml's Linux legs; change
+          # them together.
+          - target: x86_64-unknown-linux-musl
+            image: "messense/rust-musl-cross@sha256:ce75e9174325d4fbb3de85c309e2d7ca29f7500169bc4b5d2c611ff7e86d549a"
+            artifact: airdress-linux-amd64
+            agent_artifact: airdress-agent-linux-amd64
+            deb_arch: amd64
+          - target: aarch64-unknown-linux-musl
+            image: "messense/rust-musl-cross@sha256:ecae5dd62d1c938c14f8071d36c16fa699860aace03bfb5284fb1216474d2643"
+            artifact: airdress-linux-arm64
+            agent_artifact: airdress-agent-linux-arm64
+            deb_arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+      - name: Build
+        env:
+          AIRDRESS_BUILD_VERSION: pr-${{ github.event.pull_request.number || 'dispatch' }}
+          AIRDRESS_BUILD_COMMIT: ${{ github.sha }}
+          AIRDRESS_BUILD_TARGET: ${{ matrix.target }}
+          AIRDRESS_BUILD_IMAGE: ${{ matrix.image }}
+        run: |
+          scripts/release-build.sh ${{ matrix.target }}
+          scripts/release-build.sh --agent ${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/airdress ${{ matrix.artifact }}
+          cp target/${{ matrix.target }}/release/airdress-agent ${{ matrix.agent_artifact }}
+      - name: Install nfpm
+        run: |
+          NFPM_VERSION=2.41.3
+          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin nfpm
+      - name: Build .debs
+        run: |
+          scripts/package-deb.sh nfpm.yaml ${{ matrix.artifact }} ${{ matrix.deb_arch }} v0.0.0 airdress
+          scripts/package-deb.sh nfpm-agent.yaml ${{ matrix.agent_artifact }} ${{ matrix.deb_arch }} v0.0.0 airdress-agent
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.agent_artifact }}
+          path: ${{ matrix.agent_artifact }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-deb
+          path: airdress_*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.agent_artifact }}-deb
+          path: airdress-agent_*.deb
+
+  smoke:
+    name: Smoke
+    needs: build
+    uses: ./.github/workflows/linux-smoke.yml
+    with:
+      ref: ${{ github.sha }}
+      version: pr-${{ github.event.pull_request.number || 'dispatch' }}

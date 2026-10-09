@@ -26,13 +26,13 @@ Secret Service on a Linux desktop. Where there is none, they go to files
 under `~/.local/state/airdress/` readable by your user only.
 `airdress shell device status` says which store this machine uses.
 
-One thing to know on Linux: the binary the one-line installer and the
-editor plugin download is statically linked and cannot reach the Secret
-Service, so it always uses the file store. A binary you build yourself with
-`cargo build` on a glibc system uses the Secret Service. The two stores are
-separate, so the same airdress reached through both will register two
-devices rather than one. If that matters to you, use one binary, or move
-the key deliberately rather than by accident.
+On Linux, the binary the one-line installer, the `.deb` and the editor
+plugin give you is statically linked: it needs no system library, runs on
+any distribution of its architecture, and reaches the Secret Service over
+D-Bus like a binary you build yourself. Both use the same store, so a key
+one of them saved is the key the other finds. A machine with no Secret
+Service (a server, a container, an SSH session with no desktop) uses the
+file store.
 
 Nothing about custody depends on the store: the seed never leaves the
 device, and your airdress never sees it.
