@@ -136,3 +136,18 @@ tool carries no credential.
 
 Branch, commit, push the branch and open a pull request against `main`.
 The pre-push hook blocks a direct push to `main`.
+
+A maintainer lands a pull request with the bot, never with GitHub's merge
+button:
+
+```sh
+just bot-merge airdress-cli <pr>    # run in airdress-ops
+```
+
+It rebases the pull request's commits onto `main`, re-creates each one
+through the Git Data API as airdress-bot (signed by GitHub, message and
+tree unchanged, a person's authorship kept where the commit chose it) and
+fast-forwards `main`, so the pull request shows as merged. The merge
+button cannot do that: rebasing through it records whoever pressed it as
+the committer, unsigned, and the attribution check above refuses that
+commit once it is on `main`.

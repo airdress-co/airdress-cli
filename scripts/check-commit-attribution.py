@@ -58,7 +58,11 @@ CHOICE_HELP = f"""a commit under the owner's identity needs an explicit choice o
   as the owner: {CHOICE_ENV}=owner git commit ...
                 (adds a `{CHOICE_TRAILER}: owner` trailer, which CI requires)
   as the bot:   just bot-commit "<message>"
-                (or the Git Data API with an airdress-bot installation token)"""
+                (or the Git Data API with an airdress-bot installation token)
+  a merge:      just bot-merge <repo> <pr>   (airdress-ops)
+                (re-creates the pull request's commits as the bot and
+                fast-forwards main; GitHub's merge button records whoever
+                pressed it as the committer, which this check refuses)"""
 
 
 def _fold(text: str) -> str:
