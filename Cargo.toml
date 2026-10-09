@@ -247,7 +247,6 @@ http = "1"
 # the editor share, and the termios and window-size calls a raw terminal
 # needs.
 airdress-shell-proto = { version = "0.1.0", path = "crates/airdress-shell-proto" }
-airdress-shell-host = { version = "0.1.0", path = "crates/airdress-shell-host" }
 libc = "0.2"
 
 # ── Secret Service, on glibc Linux only ──────────────────────────────────────
@@ -273,6 +272,13 @@ libc = "0.2"
 #
 # The lockfile keeps the dbus crates either way — it is the union over
 # targets — so `--locked` still works for both builds.
+# The shell host (`airdress shell host`, `shell profile`, the hook entry
+# behind `shell events`) is Unix only: pseudo-terminals, Unix sockets and
+# file modes. On Windows those subcommands say they are unsupported; the
+# shell client works everywhere.
+[target.'cfg(unix)'.dependencies]
+airdress-shell-host = { version = "0.1.0", path = "crates/airdress-shell-host" }
+
 [target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
 keyring = { version = "3.6", default-features = false, features = [
     "sync-secret-service",
@@ -292,13 +298,15 @@ bytes = "1"
 # The reference host, to drive the shell client end to end against a mock
 # operator.
 airdress-shell-proto = { version = "0.1.0", path = "crates/airdress-shell-proto", features = ["conformance"] }
-# The real host and its mock operator, to drive this CLI's own session code
-# against it (tests/shell_interop.rs).
-airdress-shell-host = { version = "0.1.0", path = "crates/airdress-shell-host", features = ["testkit"] }
 
 # Smaller test and dev artifacts: line tables keep panics and backtraces
 # readable; dependencies carry no debug info. A debugger session sets
 # CARGO_PROFILE_DEV_DEBUG=true for that build (workspace crates only).
+# The real host and its mock operator, to drive this CLI's own session code
+# against it (tests/shell_interop.rs). Unix only, like the host.
+[target.'cfg(unix)'.dev-dependencies]
+airdress-shell-host = { version = "0.1.0", path = "crates/airdress-shell-host", features = ["testkit"] }
+
 [profile.dev]
 debug = "line-tables-only"
 

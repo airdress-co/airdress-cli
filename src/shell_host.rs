@@ -2,10 +2,17 @@
 //! the person's own machine. Thin: everything lives in the
 //! `airdress-shell-host` crate, so the host can be reasoned about apart from
 //! the client.
+//!
+//! The host is Unix only (pseudo-terminals, Unix sockets, file modes). The
+//! subcommands parse everywhere, so `--help` is the same on every platform,
+//! and on Windows they say they are unsupported instead of doing anything.
 
+#[cfg(unix)]
 use std::path::PathBuf;
 
+#[cfg(unix)]
 use airdress_shell_host::paths::Paths;
+#[cfg(unix)]
 use airdress_shell_host::profiles::ProfileEdit;
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -103,6 +110,7 @@ pub struct ProfileFields {
     pub notify_bell: Option<bool>,
 }
 
+#[cfg(unix)]
 impl ProfileFields {
     fn edit(&self) -> ProfileEdit {
         ProfileEdit {
@@ -150,6 +158,7 @@ pub enum ProfileCommands {
 }
 
 /// Run `airdress shell host …`.
+#[cfg(unix)]
 pub async fn run_host(h: HostArgs) -> Result<i32> {
     let paths = Paths::from_env()?;
     let ca = crate::http::configured_ca_file();
@@ -218,6 +227,7 @@ pub async fn run_host(h: HostArgs) -> Result<i32> {
 }
 
 /// Run `airdress shell profile …`.
+#[cfg(unix)]
 pub fn run_profile(command: ProfileCommands) -> Result<i32> {
     use airdress_shell_host::commands as c;
     let paths = Paths::from_env()?;
@@ -241,4 +251,22 @@ pub fn run_profile(command: ProfileCommands) -> Result<i32> {
         }
     }
     Ok(0)
+}
+
+/// What the host's subcommands answer where there is no host.
+#[cfg(not(unix))]
+pub const UNSUPPORTED: &str =
+    "`airdress shell host` runs on Linux; it is not supported on this platform. \
+     `airdress shell` (the client) works here: open a session on a host elsewhere.";
+
+/// `airdress shell host …` on a platform with no host.
+#[cfg(not(unix))]
+pub async fn run_host(_h: HostArgs) -> Result<i32> {
+    anyhow::bail!(UNSUPPORTED)
+}
+
+/// `airdress shell profile …` on a platform with no host.
+#[cfg(not(unix))]
+pub fn run_profile(_command: ProfileCommands) -> Result<i32> {
+    anyhow::bail!(UNSUPPORTED)
 }

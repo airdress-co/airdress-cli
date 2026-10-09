@@ -94,9 +94,7 @@ fn winsize(cols: u16, rows: u16) -> Winsize {
 }
 
 fn open_pair() -> Result<(OwnedFd, OwnedFd)> {
-    let master =
-        rustix::pty::openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)
-            .context("openpt")?;
+    let master = open_master()?;
     rustix::pty::grantpt(&master).context("grantpt")?;
     rustix::pty::unlockpt(&master).context("unlockpt")?;
     let name = rustix::pty::ptsname(&master, Vec::new()).context("ptsname")?;
@@ -107,6 +105,28 @@ fn open_pair() -> Result<(OwnedFd, OwnedFd)> {
     )
     .context("open the terminal's slave end")?;
     Ok((master, slave))
+}
+
+/// The terminal's master end, close-on-exec so no session's program
+/// inherits another session's terminal.
+#[cfg(target_os = "linux")]
+fn open_master() -> Result<OwnedFd> {
+    rustix::pty::openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)
+        .context("openpt")
+}
+
+/// The terminal's master end, close-on-exec so no session's program
+/// inherits another session's terminal. `posix_openpt` takes no
+/// `O_CLOEXEC` outside Linux (macOS among them), so the flag is set
+/// straight after. A child forked by another thread inside that window
+/// would inherit the descriptor; Linux, where the host ships today, has no
+/// such window.
+#[cfg(not(target_os = "linux"))]
+fn open_master() -> Result<OwnedFd> {
+    let master = rustix::pty::openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).context("openpt")?;
+    rustix::io::fcntl_setfd(&master, rustix::io::FdFlags::CLOEXEC)
+        .context("set close-on-exec on the terminal's master end")?;
+    Ok(master)
 }
 
 /// Start `spec` on a new `cols`×`rows` terminal with exactly `env`.

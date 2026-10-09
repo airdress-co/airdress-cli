@@ -3,6 +3,7 @@
 //! protocol, written separately, agree on the prologue, the hello, the
 //! CLI's `none` presence, the device-key statement, the records and the
 //! inner messages.
+#![cfg(unix)]
 
 use std::time::Duration;
 

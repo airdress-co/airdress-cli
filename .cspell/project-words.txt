@@ -267,3 +267,4 @@ libfuzzer
 endgroup
 messense
 ojson
+setfd

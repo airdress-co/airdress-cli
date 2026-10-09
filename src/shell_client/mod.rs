@@ -478,11 +478,15 @@ pub async fn run(args: ShellArgs, run_args: RunArgs<'_>) -> Result<i32> {
         Some(ShellCommands::Host(h)) => crate::shell_host::run_host(h).await,
         Some(ShellCommands::Profile { command }) => crate::shell_host::run_profile(command),
         // Local, silent, and never in the way: a hook of ours exits 0.
+        #[cfg(unix)]
         Some(ShellCommands::Events) => Ok(airdress_shell_host::structured::events::hook_main(
             &mut std::io::stdin(),
             &mut std::io::stdout(),
             &|k| std::env::var(k).ok(),
         )),
+        // No host here, so no session to hand a hook to: nothing to do.
+        #[cfg(not(unix))]
+        Some(ShellCommands::Events) => Ok(0),
         None => {
             let interactive = terminal::both_are_terminals();
             if !args.json_proto && !interactive {

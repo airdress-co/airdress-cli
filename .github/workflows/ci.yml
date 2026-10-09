@@ -63,6 +63,37 @@ jobs:
             scripts/check-commit-attribution.py range "$BASE..$HEAD"
           fi
 
+  cross-platform:
+    name: Release targets build (${{ matrix.target }})
+    # The release builds macOS and Windows too, and nothing else here ever
+    # compiled for them: a Unix-only crate reached v0.1.0's release before
+    # anything noticed. `cargo check` of the shipped binary for each
+    # non-Linux release target, on the runner the release uses.
+    timeout-minutes: 20
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install && rustup target add ${{ matrix.target }}
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: cargo check (the shipped binary)
+        shell: bash
+        run: cargo check --locked -p airdress --bins --target ${{ matrix.target }}
+
   lint:
     name: Build & Lint
     timeout-minutes: 10
