@@ -145,9 +145,13 @@ just bot-merge airdress-cli <pr>    # run in airdress-ops
 ```
 
 It rebases the pull request's commits onto `main`, re-creates each one
-through the Git Data API as airdress-bot (signed by GitHub, message and
-tree unchanged, a person's authorship kept where the commit chose it) and
-fast-forwards `main`, so the pull request shows as merged. The merge
+through the Git Data API as airdress-bot (signed by GitHub, tree and
+message unchanged but for a `Committed-As: owner` trailer, which it drops)
+and fast-forwards `main`, so the pull request shows as merged. GitHub signs
+such a commit only when the bot is its author, so a maintainer's commit
+lands as the bot's. A pull request from a fork, or carrying anybody else's
+commits, is refused rather than landed under the bot's name: their name
+stays on their work. The merge
 button cannot do that: rebasing through it records whoever pressed it as
 the committer, unsigned, and the attribution check above refuses that
 commit once it is on `main`.
