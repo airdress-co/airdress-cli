@@ -56,17 +56,23 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
             artifact: airdress-linux-amd64
+            agent_artifact: airdress-agent-linux-amd64
             deb_arch: amd64
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
             artifact: airdress-linux-arm64
+            agent_artifact: airdress-agent-linux-arm64
             deb_arch: arm64
           - target: x86_64-apple-darwin
             runner: macos-latest
             artifact: airdress-darwin-amd64
+            agent_artifact: airdress-agent-darwin-amd64
           - target: aarch64-apple-darwin
             runner: macos-latest
             artifact: airdress-darwin-arm64
+            agent_artifact: airdress-agent-darwin-arm64
+          # No airdress-agent for Windows: its device host listens on a
+          # Unix socket.
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
             artifact: airdress-windows-amd64.exe
@@ -135,6 +141,24 @@ jobs:
           sha256sum ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
         shell: bash
 
+      # `airdress-agent`: the agent device, the one binary with MLS. Same
+      # script, same reproducibility rules; `airdress` above stays MLS-free.
+      - name: Build airdress-agent
+        if: matrix.agent_artifact
+        env:
+          AIRDRESS_BUILD_VERSION: ${{ needs.tag.outputs.tag }}
+          AIRDRESS_BUILD_COMMIT: ${{ needs.tag.outputs.sha }}
+          AIRDRESS_BUILD_TARGET: ${{ matrix.target }}
+        run: scripts/release-build.sh --agent ${{ matrix.target }}
+        shell: bash
+
+      - name: Package airdress-agent
+        if: matrix.agent_artifact
+        run: |
+          cp target/${{ matrix.target }}/release/airdress-agent ${{ matrix.agent_artifact }}
+          sha256sum ${{ matrix.agent_artifact }} > ${{ matrix.agent_artifact }}.sha256
+        shell: bash
+
       - name: Install nfpm
         if: matrix.deb_arch
         run: |
@@ -170,6 +194,20 @@ jobs:
           nfpm pkg --packager deb --config nfpm.expanded.yaml --target "$DEB_NAME"
           sha256sum "$DEB_NAME" > "$DEB_NAME.sha256"
 
+      - name: Build airdress-agent .deb
+        if: matrix.deb_arch
+        env:
+          TAG: ${{ needs.tag.outputs.tag }}
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          BINARY_PATH: target/${{ matrix.target }}/release/airdress-agent
+        run: |
+          DEB_VERSION="${TAG#v}"
+          export DEB_VERSION
+          envsubst '$DEB_ARCH $DEB_VERSION $BINARY_PATH' < nfpm-agent.yaml > nfpm-agent.expanded.yaml
+          DEB_NAME="airdress-agent_${DEB_VERSION}_${DEB_ARCH}.deb"
+          nfpm pkg --packager deb --config nfpm-agent.expanded.yaml --target "$DEB_NAME"
+          sha256sum "$DEB_NAME" > "$DEB_NAME.sha256"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -185,6 +223,24 @@ jobs:
           path: |
             airdress_*_${{ matrix.deb_arch }}.deb
             airdress_*_${{ matrix.deb_arch }}.deb.sha256
+
+      - name: Upload airdress-agent
+        if: matrix.agent_artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.agent_artifact }}
+          path: |
+            ${{ matrix.agent_artifact }}
+            ${{ matrix.agent_artifact }}.sha256
+
+      - name: Upload airdress-agent .deb
+        if: matrix.deb_arch
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.agent_artifact }}-deb
+          path: |
+            airdress-agent_*_${{ matrix.deb_arch }}.deb
+            airdress-agent_*_${{ matrix.deb_arch }}.deb.sha256
 
   # ---------------------------------------------------------------------
   # Reproducibility (rust guide R-WS-8): the same tag, toolchain and lockfile
@@ -220,9 +276,11 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
             artifact: airdress-linux-amd64
+            agent_artifact: airdress-agent-linux-amd64
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
             artifact: airdress-linux-arm64
+            agent_artifact: airdress-agent-linux-arm64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -251,10 +309,14 @@ jobs:
           cargo fetch --locked
           scripts/release-build.sh ${{ matrix.target }}
           cp target/${{ matrix.target }}/release/airdress "$GITHUB_WORKSPACE/${{ matrix.artifact }}"
+          scripts/release-build.sh --agent ${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/airdress-agent "$GITHUB_WORKSPACE/${{ matrix.agent_artifact }}"
       - uses: actions/upload-artifact@v4
         with:
           name: rebuild-${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            ${{ matrix.agent_artifact }}
 
   # `airdress-mcp`, which the editor plugin pins by SHA-256, built by the
   # plugin's own Linux recipe (static musl in a digest-pinned image) on two
@@ -307,7 +369,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: a
-          pattern: "{airdress-linux-amd64,airdress-linux-arm64,mcp-*-A}"
+          pattern: "{airdress-linux-amd64,airdress-linux-arm64,airdress-agent-linux-amd64,airdress-agent-linux-arm64,mcp-*-A}"
           merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
@@ -325,6 +387,7 @@ jobs:
             echo "|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
           for f in airdress-linux-amd64 airdress-linux-arm64 \
+                   airdress-agent-linux-amd64 airdress-agent-linux-arm64 \
                    airdress-mcp-x86_64-unknown-linux-musl airdress-mcp-aarch64-unknown-linux-musl; do
             for side in a b; do
               [ -f "$side/$f" ] || { echo "::error::$f is missing from pass ${side^^}"; fail=1; continue 2; }
@@ -392,9 +455,14 @@ jobs:
             sha=$(awk '{print $1}' "artifacts/${name}.sha256")
             size=$(stat --printf='%s' "$f" 2>/dev/null || stat -f '%z' "$f")
 
+            # The agent has kinds of its own: the installer and `airdress
+            # update` take the first `binary` (or `deb`) for a platform, and
+            # `airdress-agent-*` sorts before `airdress-linux-*`.
             case "$name" in
-              *.deb) kind="deb" ;;
-              *)     kind="binary" ;;
+              airdress-agent_*.deb) kind="agent-deb" ;;
+              airdress-agent-*)     kind="agent" ;;
+              *.deb)                kind="deb" ;;
+              *)                    kind="binary" ;;
             esac
 
             case "$name" in

@@ -3,7 +3,10 @@
 # guide R-WS-8). The one definition the release's build and its independent
 # rebuild both run, so the two passes cannot drift apart by editing one.
 #
-#   scripts/release-build.sh <target> [cross]
+#   scripts/release-build.sh [--agent] <target> [cross]
+#
+# `--agent` builds `airdress-agent` instead (the `mls` feature, that binary
+# only); `airdress` itself is never built with MLS.
 #
 # Reads AIRDRESS_BUILD_VERSION / _COMMIT / _TARGET from the environment.
 # The same tag, toolchain (rust-toolchain.toml) and lockfile give the same
@@ -14,6 +17,11 @@
 # names. /project is where a `cross` container mounts the checkout.
 set -euo pipefail
 
+what=(--bin airdress)
+if [ "${1:-}" = "--agent" ]; then
+  what=(--features mls --bin airdress-agent)
+  shift
+fi
 target=$1
 use_cross=${2:-}
 root=$(git rev-parse --show-toplevel)
@@ -33,7 +41,7 @@ export RUSTFLAGS
 echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH RUSTFLAGS=$RUSTFLAGS"
 
 if [ "$use_cross" = "cross" ]; then
-  cross build --locked --release --target "$target"
+  cross build --locked --release --target "$target" "${what[@]}"
 else
-  cargo build --locked --release --target "$target"
+  cargo build --locked --release --target "$target" "${what[@]}"
 fi

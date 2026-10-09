@@ -77,8 +77,10 @@ jobs:
         include:
           - target: x86_64-apple-darwin
             runner: macos-latest
+            agent: true
           - target: aarch64-apple-darwin
             runner: macos-latest
+            agent: true
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
     steps:
@@ -93,6 +95,10 @@ jobs:
       - name: cargo check (the shipped binary)
         shell: bash
         run: cargo check --locked -p airdress --bins --target ${{ matrix.target }}
+      - name: cargo check (airdress-agent, which the release ships for macOS)
+        if: matrix.agent
+        shell: bash
+        run: cargo check --locked -p airdress --features mls --bin airdress-agent --target ${{ matrix.target }}
 
   lint:
     name: Build & Lint
@@ -378,6 +384,8 @@ jobs:
         run: |
           cargo test -p airdress --locked --features mls --lib agent_device
           cargo test -p airdress --locked --features mls --test agent_device
+      - name: The airdress-agent binary (its command line)
+        run: cargo test -p airdress --locked --features mls --bin airdress-agent
       # Agent chat in the device host: the own lane founded with a second,
       # real MLS member playing the operator's agent; the sealed store.
       - name: Agent chat (own lane round trip, sealed store)

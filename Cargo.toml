@@ -172,10 +172,19 @@ path = "src/lib.rs"
 name = "airdress"
 path = "src/main.rs"
 
+# The agent device: the one binary that links the MLS engine, so it is only
+# built with the `mls` feature (`cargo build --features mls --bin
+# airdress-agent`). `airdress` and `airdress-mcp` stay MLS-free.
+[[bin]]
+name = "airdress-agent"
+path = "src/bin/airdress-agent.rs"
+required-features = ["mls"]
+
 [features]
 default = []
-# Links airdress-mls and exposes it as `airdress::mls`. See the
-# dependency's comment for why it is off by default.
+# Links airdress-mls and exposes it as `airdress::mls`; the
+# `airdress-agent` binary requires it. See the dependency's comment for
+# why it is off by default.
 mls = ["dep:airdress-mls", "dep:airdress-mls-client", "dep:chacha20poly1305"]
 
 [dependencies]
@@ -229,8 +238,9 @@ airdress-httpsig = { version = "0.2.0", git = "https://github.com/airdress-co/ai
 
 # The MLS client — the same engine the phone runs through its C ABI and
 # the operator's agent links — for the agent device (SPEC-133 D-20).
-# Optional and OFF by default: the released binary and the MCP server
-# carry no MLS until something here needs it, and CI asserts that the
+# Optional and OFF by default. The rule: `airdress` and the MCP server
+# (`airdress-mcp`) never carry MLS; only the `airdress-agent` binary does,
+# built with this feature and released as its own artifact. CI asserts the
 # default dependency tree has no mls-rs in it. Pinned by commit, like
 # every consumer, so all three run one engine at one revision.
 # Seals the agent device's local chat store (the same AEAD the MLS

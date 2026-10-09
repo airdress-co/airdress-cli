@@ -9,16 +9,15 @@
 #![warn(clippy::tests_outside_test_module)]
 
 use airdress::{
-    airdresses, auth, build_version, current, device, functions, home, http, machine_admin, mcp,
-    plugins, profile, resources, shell_client, tls, ui, update,
+    airdresses, auth, build_version, current, device, functions, home, machine_admin, mcp, plugins,
+    profile, resources, shell_client, tls, update,
 };
 
 use std::process::ExitCode;
 
-use airdress::exit;
+use airdress::cli_setup;
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
-use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(
@@ -247,13 +246,11 @@ enum Commands {
         #[command(flatten)]
         args: shell_client::ShellArgs,
     },
-    /// This machine as an agent device of your airdress: `join` (a phone
-    /// approves it), `status`, `leave`, and `serve` (the device host a
-    /// coding assistant's sessions share). Built with the `mls` feature.
-    #[cfg(feature = "mls")]
+    /// Moved: agent devices are the `airdress-agent` binary.
+    #[command(hide = true)]
     Agent {
-        #[command(subcommand)]
-        command: airdress::agent_device::AgentCommands,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// Agent chat, from the owner's side: list the agent devices, assign a
     /// conversation to one (a phone of yours in it then adds the device),
@@ -592,187 +589,32 @@ fn build_info_long() -> String {
     format!("airdress {version}\ncommit:  {commit}\nbuilt:   {date}\ntarget:  {target}",)
 }
 
-fn should_use_color(cli: &Cli) -> bool {
-    if cli.no_color {
-        return false;
-    }
-    if std::env::var_os("NO_COLOR").is_some() {
-        return false;
-    }
-    std::io::IsTerminal::is_terminal(&std::io::stderr())
-}
-
-/// SPEC-043 — strict case-insensitive allowlist for AIRDRESS_QUIET.
-/// Anything outside `1`, `true`, `yes`, `on` (case-insensitive) is
-/// non-truthy. A typo like `AIRDRESS_QUIET=yse` must not silently
-/// swallow status lines in a CI log.
-fn quiet_env_set() -> bool {
-    env_truthy("AIRDRESS_QUIET")
-}
-
-/// Shared truthy allowlist for boolean env vars. Same semantics as
-/// [`quiet_env_set`] (SPEC-043): `1` / `true` / `yes` / `on`,
-/// case-insensitive, anything else (including empty, typos, `0`,
-/// `false`) is non-truthy.
-fn env_truthy(name: &str) -> bool {
-    std::env::var(name)
-        .ok()
-        .as_deref()
-        .map(is_truthy_quiet)
-        .unwrap_or(false)
-}
-
-/// The HTTP timeout: `--timeout`, else `AIRDRESS_TIMEOUT` when it is a
-/// number, else the default.
-fn timeout_secs(flag: Option<u64>, env: Option<&str>) -> u64 {
-    flag.or_else(|| env.and_then(|s| s.trim().parse::<u64>().ok()))
-        .unwrap_or(http::DEFAULT_TIMEOUT_SECS)
-}
-
-fn is_truthy_quiet(raw: &str) -> bool {
-    matches!(
-        raw.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes" | "on"
-    )
-}
-
-/// Whether `--output json` was asked for, read from the raw arguments: for
-/// a command line clap refused, where there is no parsed [`Cli`] to ask.
-fn json_requested(argv: &[std::ffi::OsString]) -> bool {
-    let args: Vec<&str> = argv.iter().filter_map(|a| a.to_str()).collect();
-    args.iter().enumerate().any(|(i, a)| match *a {
-        "-o" | "--output" => args.get(i + 1) == Some(&"json"),
-        "--output=json" | "-ojson" | "-o=json" => true,
-        _ => false,
-    })
-}
-
-/// Report a failure and choose the exit status (`docs/exit-codes.md`).
-/// Under `--output json` the report is exactly one JSON object on stderr;
-/// otherwise `Error: …` and, when there is one, the hint.
-fn report(err: &anyhow::Error, json: bool) -> ExitCode {
-    let failure = exit::classify(err);
-    if json {
-        match serde_json::to_string(&failure) {
-            Ok(line) => eprintln!("{line}"),
-            Err(e) => eprintln!(r#"{{"code":"internal","message":"{e}"}}"#),
-        }
-    } else {
-        eprintln!("Error: {err:?}");
-        if let Some(hint) = &failure.hint {
-            if !failure.message.contains(hint.as_str()) {
-                eprintln!("hint: {hint}");
-            }
-        }
-    }
-    ExitCode::from(failure.exit_status())
-}
-
-/// A command line clap refused: exit 2 (clap's own), as one JSON object
-/// under `--output json`. Help and `--version` are not failures.
-fn usage(err: &clap::Error, json: bool) -> ExitCode {
-    if !err.use_stderr() {
-        if let Err(e) = err.print() {
-            tracing::debug!(error = %e, "could not print help");
-        }
-        return ExitCode::SUCCESS;
-    }
-    if json {
-        let rendered = err.render().to_string();
-        let message = rendered
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .trim_start_matches("error: ")
-            .to_owned();
-        let failure = exit::Failure::usage(message).with_hint("run `airdress --help`");
-        match serde_json::to_string(&failure) {
-            Ok(line) => eprintln!("{line}"),
-            Err(e) => eprintln!(r#"{{"code":"usage","message":"{e}"}}"#),
-        }
-    } else if let Err(e) = err.print() {
-        tracing::debug!(error = %e, "could not print the usage error");
-    }
-    ExitCode::from(exit::Exit::Usage.status())
-}
-
 #[tokio::main]
 async fn main() -> ExitCode {
     let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let cli = match Cli::try_parse_from(&argv) {
         Ok(cli) => cli,
-        Err(e) => return usage(&e, json_requested(&argv)),
+        Err(e) => return cli_setup::usage(&e, cli_setup::json_requested(&argv), "airdress"),
     };
     let json = matches!(cli.output, OutputFormat::Json);
     match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => report(&e, json),
+        Err(e) => cli_setup::report(&e, json),
     }
 }
 
 async fn run(cli: Cli) -> anyhow::Result<()> {
     let use_json = matches!(cli.output, OutputFormat::Json);
-    let use_color = should_use_color(&cli);
-    ui::init_color(use_color);
-
-    // Flag beats env beats default (CLI-14): what was typed on this command
-    // line wins over what the shell carries. A garbage env value falls back
-    // to the default; bad input shouldn't fail the CLI.
-    let timeout_secs = timeout_secs(
-        cli.timeout,
-        std::env::var("AIRDRESS_TIMEOUT").ok().as_deref(),
-    );
-    http::init_timeout(timeout_secs);
-
-    // TLS settings — env-var allows shell-session pinning without
-    // re-typing the flag. AIRDRESS_INSECURE uses the same truthy
-    // allowlist as AIRDRESS_QUIET (SPEC-043).
-    let insecure = cli.insecure || env_truthy("AIRDRESS_INSECURE");
-    let ca_file = cli
-        .ca_file
-        .clone()
-        .or_else(|| std::env::var("AIRDRESS_CA_FILE").ok().map(Into::into));
-    http::init_tls(http::TlsConfig {
-        insecure,
-        ca_file: ca_file.clone(),
+    cli_setup::init(&cli_setup::Globals {
+        json: use_json,
+        no_color: cli.no_color,
+        verbose: cli.verbose,
+        timeout: cli.timeout,
+        insecure: cli.insecure,
+        ca_file: cli.ca_file.clone(),
     });
 
-    // SPEC-044 dev-mode warning. Non-suppressible (NOT gated by
-    // --quiet) because turning off TLS validation is exactly the
-    // class of decision the user should be reminded of every time.
-    if insecure {
-        ui::warn(
-            "TLS certificate validation is DISABLED (--insecure / AIRDRESS_INSECURE). \
-             Any operator on the wire can impersonate the airdress — dev use only.",
-        );
-    }
-
-    // Diagnostic tracing is silent by default (WARN+ only). `-v` lifts to
-    // INFO, `-vv` to DEBUG. `AIRDRESS_LOG=…` / `RUST_LOG=…` override.
-    // User-facing output (status, success, warning) goes through `ui::*`
-    // — independent of the tracing level.
-    let env_filter = std::env::var("AIRDRESS_LOG")
-        .ok()
-        .or_else(|| std::env::var("RUST_LOG").ok())
-        .and_then(|s| EnvFilter::try_new(s).ok())
-        .unwrap_or_else(|| {
-            let level = match cli.verbose {
-                0 => "warn",
-                1 => "info",
-                _ => "debug",
-            };
-            EnvFilter::new(format!("airdress={level}"))
-        });
-
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .with_writer(std::io::stderr)
-        .with_ansi(use_color)
-        .without_time()
-        .with_target(false)
-        .init();
-
-    let quiet = cli.quiet || quiet_env_set();
+    let quiet = cli.quiet || cli_setup::quiet_env_set();
     let explicit_airdress = cli.airdress.as_deref();
     // Where the CLI's files are, decided once and handed down: nothing
     // below reads `$HOME` for itself.
@@ -1059,18 +901,15 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 std::process::exit(code);
             }
         }
-        #[cfg(feature = "mls")]
-        Commands::Agent { command } => {
-            airdress::agent_device::run(
-                command,
-                airdress::agent_device::RunArgs {
-                    paths: &paths,
-                    explicit_airdress,
-                    json: use_json,
-                },
-            )
-            .await?;
-        }
+        // `airdress` carries no MLS; the agent device is its own binary.
+        Commands::Agent { args } => anyhow::bail!(
+            "agent devices moved to the `airdress-agent` binary: run `airdress-agent {}`",
+            if args.is_empty() {
+                "--help".to_owned()
+            } else {
+                args.join(" ")
+            }
+        ),
         Commands::Chat {
             profile,
             operator_url,
@@ -1170,7 +1009,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_truthy_quiet;
+    use airdress::cli_setup::is_truthy as is_truthy_quiet;
 
     /// Clap's own consistency checks (duplicate argument names and the
     /// like) run only when a command is built; this builds every one.
@@ -1359,7 +1198,7 @@ mod tests {
 
     #[test]
     fn the_timeout_flag_beats_the_env_which_beats_the_default() {
-        use super::timeout_secs;
+        use airdress::cli_setup::timeout_secs;
         let default = airdress::http::DEFAULT_TIMEOUT_SECS;
         assert_eq!(timeout_secs(Some(5), Some("90")), 5, "flag over env");
         assert_eq!(timeout_secs(None, Some("90")), 90, "env over default");

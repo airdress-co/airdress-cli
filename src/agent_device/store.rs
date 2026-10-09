@@ -254,7 +254,7 @@ impl AgentStore {
         let identity =
             SigningKey::from_bytes(&unb64_32(blob.identity_seed.expose(), "identity key")?);
         if b64(&identity.verifying_key().to_bytes()) != rec.identity_public {
-            bail!("the stored keys do not match the agent device's record; `airdress agent device leave` and join again");
+            bail!("the stored keys do not match the agent device's record; `airdress-agent device leave` and join again");
         }
         Ok(Some(AgentDevice {
             record: rec,

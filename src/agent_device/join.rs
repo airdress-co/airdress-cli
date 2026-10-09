@@ -174,7 +174,7 @@ async fn refused(resp: reqwest::Response, airdress: &str) -> anyhow::Error {
     match code {
         "invalid_renewal" => anyhow::anyhow!(
             "the operator does not recognize this device as the agent it renews; \
-             `airdress agent device leave` and join again"
+             `airdress-agent device leave` and join again"
         ),
         "join_request_limit" => anyhow::anyhow!("too many devices are asking to join; try later"),
         "" => anyhow::anyhow!("the operator refused ({status})"),

@@ -9,10 +9,10 @@
 //! sealed.
 //!
 //! ```text
-//! airdress agent device join     ask (a phone approves), and wait
-//! airdress agent device status   the device's standing and expiry
-//! airdress agent device leave    sign it out and delete its keys
-//! airdress agent device serve    run the device host (the editor's server starts it)
+//! airdress-agent device join     ask (a phone approves), and wait
+//! airdress-agent device status   the device's standing and expiry
+//! airdress-agent device leave    sign it out and delete its keys
+//! airdress-agent device serve    run the device host (the editor's server starts it)
 //! ```
 
 pub mod chat;
@@ -32,7 +32,7 @@ use crate::airdresses::client::HubClient;
 use crate::context;
 use crate::profile::storage;
 
-/// `airdress agent …`.
+/// `airdress-agent …`.
 #[derive(Debug, Subcommand)]
 pub enum AgentCommands {
     /// This machine's agent device on the airdress.
@@ -42,7 +42,7 @@ pub enum AgentCommands {
     },
 }
 
-/// `airdress agent device …`.
+/// `airdress-agent device …`.
 #[derive(Debug, Subcommand)]
 pub enum DeviceCommands {
     /// Ask to join as an agent device; a phone approves it. Waits.
@@ -160,7 +160,7 @@ fn print(v: &serde_json::Value, json_out: bool) {
     }
 }
 
-/// Run `airdress agent …`.
+/// Run `airdress-agent …`.
 pub async fn run(cmd: AgentCommands, args: RunArgs<'_>) -> Result<()> {
     let paths = args.paths;
     let AgentCommands::Device { command } = cmd;

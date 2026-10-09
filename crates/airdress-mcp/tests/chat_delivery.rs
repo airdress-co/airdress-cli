@@ -441,6 +441,6 @@ fn without_a_device_host_the_tools_say_how_to_get_one() {
     let r = server.tool(2, "chat_conversations", json!({}));
     let text = r.to_string();
     assert_eq!(r["result"]["isError"], true, "{r}");
-    assert!(text.contains("airdress agent device join"), "{text}");
+    assert!(text.contains("airdress-agent device join"), "{text}");
     server.stop();
 }

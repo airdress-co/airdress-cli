@@ -28,6 +28,7 @@ pub mod agent_device;
 pub mod airdresses;
 pub mod auth;
 pub mod chat_assign;
+pub mod cli_setup;
 pub mod context;
 pub mod current;
 pub mod device;

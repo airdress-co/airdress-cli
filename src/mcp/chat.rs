@@ -2,7 +2,7 @@
 //! new messages into the client.
 //!
 //! This server never holds a chat key. The device host on this machine
-//! (`airdress agent device serve`) is the MLS member: it keeps the sealed
+//! (`airdress-agent device serve`) is the MLS member: it keeps the sealed
 //! group state and the sealed message store, pumps envelopes from the
 //! operator, and answers four socket operations — `chat.conversations`,
 //! `chat.read`, `chat.send` and `chat.wait`. Here those become tools, and
@@ -47,8 +47,8 @@ pub fn host_socket(session: &Session, fqdn: &str) -> Result<PathBuf> {
 fn no_host(fqdn: &str, e: &anyhow::Error) -> anyhow::Error {
     anyhow::anyhow!(
         "chat is read and written by this machine's agent device, and none is serving for \
-         {fqdn} ({e:#}). Join one with `airdress agent device join` and keep \
-         `airdress agent device serve` running."
+         {fqdn} ({e:#}). Join one with `airdress-agent device join` and keep \
+         `airdress-agent device serve` running."
     )
 }
 
