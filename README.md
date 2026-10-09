@@ -13,6 +13,8 @@ and AI agents are reachable at one address you own, with TLS and
 multi-device failover handled for you. The `airdress` CLI is how you work
 with that address from a terminal, a script or an editor.
 
+**Documentation: [docs.airdress.co/cli](https://docs.airdress.co/cli/)**
+
 ## What you can do
 
 | You want to… | Run |
@@ -27,7 +29,7 @@ with that address from a terminal, a script or an editor.
 | Declare resources and apply them | `airdress apply -f pool.yaml` |
 
 Every command takes `--output json` and exits with a
-[stable code](docs/exit-codes.md), so what you type today runs in a script
+[stable code](https://docs.airdress.co/cli/exit-codes/), so what you type today runs in a script
 tomorrow.
 
 ## Install
@@ -53,6 +55,7 @@ airdress update --check    # just ask
 ```
 
 Shell completions: `airdress completion bash|zsh|fish|powershell|elvish`.
+The [install guide](https://docs.airdress.co/cli/install/) has every method in detail.
 
 ## Sixty seconds
 
@@ -73,23 +76,29 @@ waits until the function reports the new version loaded.
 
 ## Guides
 
-- [Getting started](docs/getting-started.md): sign in, profiles, choosing
+The documentation lives at [docs.airdress.co](https://docs.airdress.co/cli/):
+
+- [The CLI](https://docs.airdress.co/cli/): what it does, and where to start.
+- [Install](https://docs.airdress.co/cli/install/): the installer, packages, releases and
+  `airdress update`.
+- [Getting started](https://docs.airdress.co/cli/getting-started/): sign in, profiles, choosing
   the airdress a command acts on.
-- [Functions](docs/functions.md): write, validate, deploy and promote
+- [Functions](https://docs.airdress.co/functions/): write, validate, deploy and promote
   code-first functions; the SDK; deploying from CI.
-- [Shells](docs/shells.md): a terminal on your own machine, through your
+- [Shells](https://docs.airdress.co/shells/): a terminal on your own machine, through your
   airdress.
-- [Your airdress from an editor](docs/editor.md): the MCP server and the
-  Claude Code plugin.
-- [Devices, machines and homes](docs/devices-and-machines.md): phones,
-  approved machines, Home Assistant, agent chat.
-- [Plugins](docs/plugins.md): install, verify, authorize.
-- [Resources](docs/resources.md): `apply`, `get`, `describe`, `delete`.
-- [Scripting](docs/scripting.md): `--output json`, tokens, environment
+- [Claude Code](https://docs.airdress.co/editor/claude-code/): your airdress from an editor,
+  over MCP.
+- [Agents](https://docs.airdress.co/agents/): agent devices, the agent bus and agent chat.
+- [Scripting](https://docs.airdress.co/cli/scripting/): `--output json`, tokens, environment
   variables.
-- [Exit codes](docs/exit-codes.md): the contract scripts rely on.
-- [Keys and storage](docs/keys-and-storage.md): where profiles, tokens and
-  device keys live.
+- [Exit codes](https://docs.airdress.co/cli/exit-codes/): the contract scripts rely on.
+
+The guides are also kept in this repository, under [`docs/`](docs/), with
+four that are only here for now:
+[devices, machines and homes](docs/devices-and-machines.md),
+[plugins](docs/plugins.md), [resources](docs/resources.md) and
+[keys and storage](docs/keys-and-storage.md).
 
 ## What leaves your machine
 
