@@ -5,5 +5,9 @@
   "default": true,
   "MD013": false,
   "MD033": false,
-  "MD041": false
+  "MD041": false,
+  // The changelog repeats "### Added" / "### Fixed" under every version, as
+  // Keep a Changelog does; a heading may repeat, just not among siblings.
+  // The v0.1.4 release pull request was the first with two "Fixed".
+  "MD024": { "siblings_only": true }
 }
