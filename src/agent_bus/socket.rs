@@ -12,11 +12,17 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context as _, Result};
+#[cfg(unix)]
+use anyhow::{bail, Context as _};
+use anyhow::Result;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use serde_json::{json, Value};
+use serde_json::Value;
+#[cfg(unix)]
+use serde_json::json;
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
 /// The default agent state dir: `~/.local/state/airdress/agent`.
@@ -53,6 +59,7 @@ pub fn socket_path(device_dir: &Path, runtime_dir: Option<&Path>) -> PathBuf {
 
 /// Ask the holder one question. Errors when no host is serving, or when
 /// it refuses (the refusal's message is the error).
+#[cfg(unix)]
 pub async fn call(socket: &Path, req: &Value) -> Result<Value> {
     let sock = UnixStream::connect(socket)
         .await
@@ -74,4 +81,14 @@ pub async fn call(socket: &Path, req: &Value) -> Result<Value> {
         );
     }
     Ok(v)
+}
+
+/// Ask the holder one question. The device host listens on a Unix socket,
+/// so on Windows there is none to ask.
+#[cfg(not(unix))]
+pub async fn call(socket: &Path, _req: &Value) -> Result<Value> {
+    anyhow::bail!(
+        "no device host on this platform: it listens on a Unix socket ({})",
+        socket.display()
+    )
 }

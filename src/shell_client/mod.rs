@@ -40,6 +40,7 @@ use airdress_shell_proto::keys::fingerprint;
 
 use crate::airdresses::client::HubClient;
 use crate::context::{self, Source};
+#[cfg(unix)]
 use crate::log_err::LogErr as _;
 use crate::profile::storage;
 use crate::ui;
