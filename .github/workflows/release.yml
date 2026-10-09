@@ -1,0 +1,468 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.0-alpha.5)"
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  tag:
+    name: Create tag
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: resolve
+        run: |
+          TAG="${{ inputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, using it"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "Created tag $TAG"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # The TAG's commit, not HEAD: when the tag already existed, HEAD is
+          # whatever main is now, and the build would check out (and date)
+          # a commit the tag does not name.
+          echo "sha=$(git rev-parse "$TAG^{commit}")" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: tag
+    timeout-minutes: 25
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The Linux legs are pass A of the reproducibility check below:
+          # their runner image is pinned, not `-latest`, because a gnu
+          # binary links the image's C runtime objects and pass B must be
+          # built against the same ones.
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            artifact: airdress-linux-amd64
+            deb_arch: amd64
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            artifact: airdress-linux-arm64
+            deb_arch: arm64
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            artifact: airdress-darwin-amd64
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            artifact: airdress-darwin-arm64
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            artifact: airdress-windows-amd64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.sha }}
+
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install && rustup target add ${{ matrix.target }}
+
+      # airdress-httpsig is a git dependency on the private operator
+      # repository; fetched here, on the runner, so a cross build's
+      # container finds it in the mounted cargo home.
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+        shell: bash
+
+      # The keyring crate (sync-secret-service) links libdbus-sys on Linux,
+      # which needs libdbus-1-dev + pkg-config. ci.yml got this (PR #21);
+      # release.yml never did, so the first release after the dbus keyring
+      # landed (alpha.19) failed the Linux legs. Both Linux targets build
+      # natively now (arm on a native arm runner), so a runner apt install
+      # is all it takes — no cross, no libdbus-sys cross-pkg-config dance.
+      - name: Install libdbus (Linux keyring dependency)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config
+
+      # Pinned by commit (main as of 2026-09-24; the last release, v0.2.5, is
+      # from 2023) and --locked, so the tool that builds a release is the one
+      # that was reviewed (R-WS-2). Bump the rev deliberately.
+      - name: Install cross
+        if: matrix.cross
+        run: >-
+          cargo install cross --locked
+          --git https://github.com/cross-rs/cross
+          --rev 74e99b2223de06166f8cdcc1af7f1308ec52baf4
+
+      # Reproducible (R-WS-8): scripts/release-build.sh fixes the date and
+      # remaps every absolute path; the rebuild job runs the same script.
+      - name: Build
+        env:
+          AIRDRESS_BUILD_VERSION: ${{ needs.tag.outputs.tag }}
+          AIRDRESS_BUILD_COMMIT: ${{ needs.tag.outputs.sha }}
+          AIRDRESS_BUILD_TARGET: ${{ matrix.target }}
+        run: scripts/release-build.sh ${{ matrix.target }} ${{ matrix.cross && 'cross' || '' }}
+        shell: bash
+
+      - name: Package
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/${{ matrix.target }}/release/airdress.exe ${{ matrix.artifact }}
+          else
+            cp target/${{ matrix.target }}/release/airdress ${{ matrix.artifact }}
+          fi
+          sha256sum ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+        shell: bash
+
+      - name: Install nfpm
+        if: matrix.deb_arch
+        run: |
+          NFPM_VERSION=2.41.3
+          # nfpm's asset arch must match the RUNNER, not the target: this
+          # step runs on a native arm64 runner for the arm64 leg, where an
+          # x86_64 nfpm cannot execute. (This is what failed alpha.21.)
+          case "$(uname -m)" in
+            x86_64)        NFPM_ARCH=x86_64 ;;
+            aarch64|arm64) NFPM_ARCH=arm64 ;;
+            *) echo "unknown runner arch $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_${NFPM_ARCH}.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin nfpm
+          nfpm --version
+
+      - name: Build .deb
+        if: matrix.deb_arch
+        env:
+          TAG: ${{ needs.tag.outputs.tag }}
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          BINARY_PATH: target/${{ matrix.target }}/release/airdress
+        run: |
+          DEB_VERSION="${TAG#v}"
+          export DEB_VERSION
+          # nfpm does its own envsubst on a small set of metadata fields
+          # (version, arch) but NOT on contents[].src — so ${BINARY_PATH}
+          # would land at the globber as a literal string. Expand
+          # ourselves with an explicit allowlist of vars to avoid eating
+          # unrelated `$something` strings in the YAML.
+          envsubst '$DEB_ARCH $DEB_VERSION $BINARY_PATH' < nfpm.yaml > nfpm.expanded.yaml
+          DEB_NAME="airdress_${DEB_VERSION}_${DEB_ARCH}.deb"
+          nfpm pkg --packager deb --config nfpm.expanded.yaml --target "$DEB_NAME"
+          sha256sum "$DEB_NAME" > "$DEB_NAME.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            ${{ matrix.artifact }}.sha256
+
+      - name: Upload .deb artifact
+        if: matrix.deb_arch
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-deb
+          path: |
+            airdress_*_${{ matrix.deb_arch }}.deb
+            airdress_*_${{ matrix.deb_arch }}.deb.sha256
+
+  # ---------------------------------------------------------------------
+  # Reproducibility (rust guide R-WS-8): the same tag, toolchain and lockfile
+  # must give the same bytes on another machine, so a tag is built twice and
+  # nothing is published unless both builds agree byte for byte. Twice on
+  # tags only, not on every pull request (owner decision, 2026-10-07).
+  #
+  # Independence: separate jobs on fresh runners, no actions/cache anywhere
+  # in this workflow, nothing passed between the passes but the finished
+  # binaries the compare job reads.
+  #
+  # macOS is not double-built here. Its binaries are Developer ID signed and
+  # notarized by Apple, which embeds a signature and a timestamp that differ
+  # on every signing, so two signed builds can never be byte-identical; the
+  # release trusts the signature there instead. The editor plugin compares
+  # its unsigned macOS server build before signing, in its own workflow.
+  # Windows has no reproducibility claim yet.
+  # ---------------------------------------------------------------------
+
+  # Pass B of `airdress` for each Linux target: the same script, the same
+  # pinned runner image as pass A (a gnu binary carries the image's crt
+  # objects, so a different image is a different input, not a second
+  # opinion), a different machine.
+  rebuild:
+    name: Rebuild ${{ matrix.artifact }} (pass B)
+    needs: tag
+    timeout-minutes: 25
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            artifact: airdress-linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            artifact: airdress-linux-arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.sha }}
+          # A different checkout path from pass A: the remap must make the
+          # path irrelevant, and this is where it would show if it did not.
+          path: rebuild-src
+      - name: Rust toolchain (rust-toolchain.toml)
+        working-directory: rebuild-src
+        run: rustup toolchain install && rustup target add ${{ matrix.target }}
+      - uses: ./rebuild-src/.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Install libdbus (Linux keyring dependency)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Build
+        working-directory: rebuild-src
+        env:
+          AIRDRESS_BUILD_VERSION: ${{ needs.tag.outputs.tag }}
+          AIRDRESS_BUILD_COMMIT: ${{ needs.tag.outputs.sha }}
+          AIRDRESS_BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          cargo fetch --locked
+          scripts/release-build.sh ${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/airdress "$GITHUB_WORKSPACE/${{ matrix.artifact }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rebuild-${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  # `airdress-mcp`, which the editor plugin pins by SHA-256, built by the
+  # plugin's own Linux recipe (static musl in a digest-pinned image) on two
+  # different runner images. The C toolchain is the image's, so here the
+  # runner image may and should differ. The digests are the plugin's
+  # launcher-src/toolchain-images.json; change them together.
+  mcp:
+    name: airdress-mcp ${{ matrix.target }} (pass ${{ matrix.pass }})
+    needs: tag
+    timeout-minutes: 45
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, runner: ubuntu-24.04, pass: A, image: "messense/rust-musl-cross@sha256:ce75e9174325d4fbb3de85c309e2d7ca29f7500169bc4b5d2c611ff7e86d549a" }
+          - { target: x86_64-unknown-linux-musl, runner: ubuntu-22.04, pass: B, image: "messense/rust-musl-cross@sha256:ce75e9174325d4fbb3de85c309e2d7ca29f7500169bc4b5d2c611ff7e86d549a" }
+          - { target: aarch64-unknown-linux-musl, runner: ubuntu-24.04, pass: A, image: "messense/rust-musl-cross@sha256:ecae5dd62d1c938c14f8071d36c16fa699860aace03bfb5284fb1216474d2643" }
+          - { target: aarch64-unknown-linux-musl, runner: ubuntu-22.04, pass: B, image: "messense/rust-musl-cross@sha256:ecae5dd62d1c938c14f8071d36c16fa699860aace03bfb5284fb1216474d2643" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.sha }}
+      - name: Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+      - name: Build
+        run: |
+          scripts/release-build-mcp.sh ${{ matrix.target }} "${{ matrix.image }}" out
+          mv out/airdress-mcp "airdress-mcp-${{ matrix.target }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcp-${{ matrix.target }}-${{ matrix.pass }}
+          path: airdress-mcp-${{ matrix.target }}
+
+  # The gate: every pass-A binary against its pass-B twin. A mismatch
+  # prints both digests of every differing file and fails, and `release`
+  # (the only job that uploads or publishes) needs this job.
+  compare:
+    name: Reproducibility (byte-compare the two builds)
+    needs: [build, rebuild, mcp]
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: a
+          pattern: "{airdress-linux-amd64,airdress-linux-arm64,mcp-*-A}"
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: b
+          pattern: "{rebuild-*,mcp-*-B}"
+          merge-multiple: true
+      - name: Compare
+        run: |
+          set -euo pipefail
+          fail=0
+          {
+            echo "### Reproducibility"
+            echo
+            echo "| File | Pass A | Pass B |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in airdress-linux-amd64 airdress-linux-arm64 \
+                   airdress-mcp-x86_64-unknown-linux-musl airdress-mcp-aarch64-unknown-linux-musl; do
+            for side in a b; do
+              [ -f "$side/$f" ] || { echo "::error::$f is missing from pass ${side^^}"; fail=1; continue 2; }
+            done
+            da=$(sha256sum "a/$f" | cut -d' ' -f1)
+            db=$(sha256sum "b/$f" | cut -d' ' -f1)
+            echo "| \`$f\` | \`$da\` | \`$db\` |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$da" = "$db" ] && cmp -s "a/$f" "b/$f"; then
+              echo "identical  $da  $f"
+            else
+              echo "::error::$f differs between the two builds: A $da, B $db ($(stat -c %s "a/$f") vs $(stat -c %s "b/$f") bytes)"
+              cmp -l "a/$f" "b/$f" | head -20 || true
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+  release:
+    name: Release
+    needs: [tag, build, compare]
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    # Never a parallel composite upload. gcloud switches to one for any file
+    # over 150 MB, and composing needs storage.buckets.get, which the release
+    # SA does not hold on the downloads bucket (object roles only); a
+    # composite object also carries no MD5. The operator's release hit it
+    # when linux-amd64 crossed 150 MB (airdress-operator #325).
+    env:
+      CLOUDSDK_STORAGE_PARALLEL_COMPOSITE_UPLOAD_ENABLED: "False"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Determine version
+        id: version
+        run: |
+          TAG="${{ needs.tag.outputs.tag }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.RELEASE_WIF_PROVIDER }}
+          service_account: ${{ vars.RELEASE_PUBLISHER_SA }}
+
+      - name: Generate manifest.json
+        run: |
+          VERSION="${{ steps.version.outputs.tag }}"
+          PRE_RELEASE=$(echo "$VERSION" | grep -qE '-(alpha|beta|rc)' && echo true || echo false)
+          PUBLISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          ARTIFACTS='[]'
+          for f in artifacts/airdress*; do
+            name=$(basename "$f")
+            [[ "$name" == *.sha256 ]] && continue
+            sha=$(awk '{print $1}' "artifacts/${name}.sha256")
+            size=$(stat --printf='%s' "$f" 2>/dev/null || stat -f '%z' "$f")
+
+            case "$name" in
+              *.deb) kind="deb" ;;
+              *)     kind="binary" ;;
+            esac
+
+            case "$name" in
+              *linux-amd64*|*_amd64.deb)   plat="linux-amd64" ;;
+              *linux-arm64*|*_arm64.deb)   plat="linux-arm64" ;;
+              *darwin-amd64*)              plat="darwin-amd64" ;;
+              *darwin-arm64*)              plat="darwin-arm64" ;;
+              *windows-amd64*)             plat="windows-amd64" ;;
+              *) continue ;;
+            esac
+
+            ARTIFACTS=$(echo "$ARTIFACTS" | jq \
+              --arg p "$plat" --arg k "$kind" --arg fn "$name" --arg sha "$sha" --argjson sz "$size" \
+              '. += [{"platform": $p, "kind": $k, "filename": $fn, "sha256": $sha, "bytes": $sz}]')
+          done
+
+          jq -n \
+            --argjson sv 1 \
+            --arg v "$VERSION" \
+            --argjson pr "$PRE_RELEASE" \
+            --arg pub "$PUBLISHED" \
+            --argjson arts "$ARTIFACTS" \
+            '{schema_version: $sv, version: $v, pre_release: $pr, artifacts: $arts, published_at: $pub}' \
+            > manifest.json
+
+          cat manifest.json
+
+      - name: Upload to downloads bucket
+        # Per-version paths are content-addressable / immutable — set a
+        # 1-year `immutable` Cache-Control so Cloud CDN caches them
+        # aggressively and clients never re-validate (matches the
+        # operator workflow's pattern; see SPEC-024 §5).
+        run: |
+          VERSION="${{ steps.version.outputs.tag }}"
+          BUCKET="gs://${{ vars.DOWNLOADS_BUCKET }}/airdress-cli/${VERSION}"
+          for f in artifacts/airdress*; do
+            gcloud storage cp "$f" "${BUCKET}/$(basename "$f")" \
+              --cache-control="public, max-age=31536000, immutable"
+          done
+          gcloud storage cp manifest.json "${BUCKET}/manifest.json" \
+            --cache-control="public, max-age=31536000, immutable"
+
+      - name: Update index.json
+        # index.json is mutable — bumped on every release. Use a short
+        # TTL (60s) so the Cloud CDN edge picks up the new generation
+        # within a minute without needing an explicit invalidate call
+        # (which would require granting compute.urlMaps.invalidateCache
+        # to the publisher SA). Mirrors the operator workflow.
+        run: |
+          VERSION="${{ steps.version.outputs.tag }}"
+          BUCKET="${{ vars.DOWNLOADS_BUCKET }}"
+          INDEX="gs://${BUCKET}/airdress-cli/index.json"
+
+          if gcloud storage cat "$INDEX" > index.json 2>/dev/null; then
+            echo "Updating existing index"
+          else
+            echo '{"schema_version":1,"versions":[],"latest":null,"latest_stable":null}' > index.json
+          fi
+
+          UPDATED=$(jq --arg v "$VERSION" '
+            .versions += [$v] | .versions |= unique |
+            .latest = $v |
+            (if ($v | test("-(alpha|beta|rc)") | not) then .latest_stable = $v else . end)
+          ' index.json)
+
+          echo "$UPDATED" > index.json
+          gcloud storage cp index.json "$INDEX" \
+            --cache-control="public, max-age=60, s-maxage=60"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: artifacts/*
+          generate_release_notes: true

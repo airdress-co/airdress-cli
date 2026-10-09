@@ -1,0 +1,72 @@
+# `prek install` installs both stages: the hooks below run at pre-commit,
+# and commit-attribution runs at commit-msg, where the message exists.
+default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/streetsidesoftware/cspell-cli
+    rev: v8.17.3
+    hooks:
+      - id: cspell
+        name: cspell
+        args: ["--no-progress", "--no-summary", "--no-must-find-files"]
+
+  - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
+    rev: "3.6.1"
+    hooks:
+      - id: editorconfig-checker
+        name: editorconfig-checker
+
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.17.2
+    hooks:
+      - id: markdownlint-cli2
+        name: markdownlint-cli2
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --check
+        language: system
+        files: \.rs$
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --workspace --all-targets --locked -- -D warnings
+        language: system
+        files: \.rs$
+        pass_filenames: false
+
+      - id: public-hygiene
+        name: no internal names in a public repository
+        entry: scripts/check-public.sh
+        language: system
+        pass_filenames: false
+
+      - id: doc-numbers
+        name: document numbers stay out of code
+        entry: scripts/check-doc-numbers.sh
+        language: system
+        pass_filenames: false
+
+      - id: third-party
+        name: THIRD-PARTY.md matches the lockfile
+        entry: scripts/third-party.sh --check
+        language: system
+        files: ^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|THIRD-PARTY\.md)$
+        pass_filenames: false
+
+      - id: commit-attribution
+        name: no commit attributed to an AI assistant
+        entry: scripts/check-commit-attribution.py commit-msg
+        language: system
+        stages: [commit-msg]
+
+      - id: commit-attribution-fixtures
+        name: commit-attribution fixtures
+        entry: scripts/check-commit-attribution-test.sh
+        language: system
+        files: ^scripts/check-commit-attribution
+        pass_filenames: false

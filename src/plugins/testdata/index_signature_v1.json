@@ -1,0 +1,10 @@
+{
+  "description": "Registry index signature (label airdress.plugin.index.v1). The operator (bundle_signature.rs) and ci/signing.py both test against this file; change neither side without it.",
+  "label": "airdress.plugin.index.v1",
+  "seedHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+  "publicKey": "ed25519:79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664",
+  "keyId": "65b60673d6ed884b",
+  "document": "{\"apiVersion\":\"airdress.registry/v1\",\"kind\":\"RegistryIndex\",\"generated\":\"2026-09-28T00:00:00Z\",\"expires\":\"2026-10-05T00:00:00Z\",\"bundles\":{}}\n",
+  "messageHex": "61697264726573732e706c7567696e2e696e6465782e76311f6224746d13b7d6963d1fc6764e9b9323c2ecc1c2056269c3c7ab120176f3e521",
+  "signatureFile": "{\"alg\":\"ed25519\",\"keyId\":\"65b60673d6ed884b\",\"signature\":\"uw3mdVXGXKNtFPBqr9Ki7RVXr18N329vh97Fkh5OGIAp+xxoMwlvDq1lySrtvmZyHnAphnXgQOGhd61L3qfSCw==\"}"
+}

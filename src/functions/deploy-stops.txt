@@ -1,0 +1,13 @@
+check_failed
+digest_mismatch
+signer_unavailable
+signer_not_this_client
+confirmation_declined
+operator_predates_promote
+not_loaded_in_time
+load_failed
+function_missing
+layout_invalid
+superseded
+write_back_failed
+machine_authorization_expired

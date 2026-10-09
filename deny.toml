@@ -1,0 +1,92 @@
+# cargo-deny: licences, advisories, bans, sources.
+#
+# The bans section is the one worth reading. This binary runs on a
+# developer's machine, inside their editor, with their airdress
+# credentials in reach. It contacts the user's hub, the user's operators
+# and nothing else. That is a promise which a single transitive
+# dependency can break silently, so the dependency is refused here
+# rather than audited later (SPEC-133 FR-112).
+
+[graph]
+all-features = true
+
+[licenses]
+# A licence in the allow list that nothing currently uses is a policy,
+# not an inventory, so an unmatched entry is not worth failing over.
+unused-allowed-license = "allow"
+
+# What this project may ship. MPL-2.0 is file-level copyleft and is
+# fine for a dependency we do not modify.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+
+
+[advisories]
+yanked = "deny"
+# An ignore here needs a sentence saying why the advisory does not
+# reach this code, and a date. An empty list is the resting state.
+ignore = []
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+# `allow-wildcard-paths` is deliberately NOT set: it only exempts crates
+# marked `publish = false`, and these are publishable. The
+# intra-workspace dependencies carry a `version` alongside their `path`
+# instead, which is what a published crate needs anyway and is an
+# honest statement rather than an exemption.
+
+# No analytics, no crash reporting, no tracing exporter. Each of these
+# would open a connection to a host the user did not choose.
+deny = [
+    { crate = "sentry", reason = "no crash reporting: this process must contact only the user's hub and operators" },
+    { crate = "sentry-core", reason = "no crash reporting" },
+    { crate = "sentry-types", reason = "no crash reporting" },
+    { crate = "sentry-backtrace", reason = "no crash reporting" },
+    { crate = "sentry-panic", reason = "no crash reporting" },
+    { crate = "sentry-tracing", reason = "no crash reporting" },
+    { crate = "opentelemetry-otlp", reason = "no trace export off this machine" },
+    { crate = "opentelemetry-jaeger", reason = "no trace export off this machine" },
+    { crate = "opentelemetry-zipkin", reason = "no trace export off this machine" },
+    { crate = "opentelemetry-datadog", reason = "no trace export off this machine" },
+    { crate = "posthog", reason = "no analytics" },
+    { crate = "posthog-rs", reason = "no analytics" },
+    { crate = "segment", reason = "no analytics" },
+    { crate = "mixpanel", reason = "no analytics" },
+    { crate = "amplitude", reason = "no analytics" },
+    { crate = "rudderanalytics", reason = "no analytics" },
+    { crate = "aptabase", reason = "no analytics" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# The signing crate, pinned to a release tag: the CLI and the operator's
+# verifier cannot be allowed to drift apart. It is its own PUBLIC
+# repository since 2026-10-04 — it used to be a tag against
+# airdress-operator, which is private, and that single dependency was
+# what stopped a public checkout of this repository from building.
+#
+# cargo-deny found this line on the day of the move: the dependency had
+# been repointed and the allowed source still named the old repo, so
+# `sources` failed with "allowed source was not encountered". A gate
+# worth having.
+#
+# airdress-mls is the MLS engine, behind the off-by-default `mls`
+# feature; `[graph] all-features` above is what makes this check see it.
+allow-git = [
+    "https://github.com/airdress-co/airdress-httpsig",
+    "https://github.com/airdress-co/airdress-mls",
+]

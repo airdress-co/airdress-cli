@@ -1,0 +1,18 @@
+# Every symbol the C ABI exports (src/ffi.rs), one per line.
+# A unit test holds this list to the source, and
+# scripts/term-ffi-symbols.sh holds it to nm on the Android .so.
+airdress_term_version
+airdress_term_buf_free
+airdress_term_new
+airdress_term_free
+airdress_term_reset
+airdress_term_set_default_colors
+airdress_term_feed
+airdress_term_resize
+airdress_term_scroll
+airdress_term_scroll_to_bottom
+airdress_term_state
+airdress_term_snapshot
+airdress_term_cell_text
+airdress_term_take_replies
+airdress_term_screen_text

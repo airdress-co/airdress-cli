@@ -1,0 +1,187 @@
+{
+  "bodies": [
+    {
+      "event": "status",
+      "state": "working"
+    },
+    {
+      "event": "status",
+      "state": "waiting_for_approval"
+    },
+    {
+      "event": "message",
+      "final": true,
+      "id": "m1",
+      "role": "user",
+      "text": "Add a test for the ä/ß parser"
+    },
+    {
+      "append": true,
+      "event": "message",
+      "id": "m2",
+      "role": "assistant",
+      "text": "I'll add"
+    },
+    {
+      "event": "thought",
+      "id": "t1",
+      "text": "The test belongs next to the parser."
+    },
+    {
+      "event": "tool_call",
+      "id": "c1",
+      "input": "src/parse.rs",
+      "kind": "edit",
+      "status": "pending",
+      "title": "Edit src/parse.rs"
+    },
+    {
+      "event": "tool_call",
+      "id": "c2",
+      "kind": "execute",
+      "status": "done",
+      "title": "cargo test"
+    },
+    {
+      "event": "tool_result",
+      "exitCode": 0,
+      "id": "c2",
+      "text": "test result: ok. 3 passed"
+    },
+    {
+      "event": "diff",
+      "path": "src/parse.rs",
+      "toolCallId": "c1",
+      "unified": "--- a/src/parse.rs\n+++ b/src/parse.rs\n@@ -1 +1,2 @@\n fn parse() {}\n+#[test] fn t() {}\n"
+    },
+    {
+      "entries": [
+        {
+          "status": "completed",
+          "text": "Read the parser"
+        },
+        {
+          "status": "in_progress",
+          "text": "Add a test"
+        },
+        {
+          "status": "pending",
+          "text": "Run the suite"
+        }
+      ],
+      "event": "plan"
+    },
+    {
+      "detail": "cargo test -p parser",
+      "event": "approval_request",
+      "id": "a1",
+      "options": [
+        {
+          "id": "once",
+          "kind": "allow_once",
+          "label": "Allow once"
+        },
+        {
+          "id": "always",
+          "kind": "allow_always",
+          "label": "Always allow"
+        },
+        {
+          "id": "reject",
+          "kind": "deny",
+          "label": "Deny"
+        }
+      ],
+      "title": "Run cargo test?"
+    },
+    {
+      "event": "approval_resolved",
+      "id": "a1",
+      "outcome": "answered"
+    },
+    {
+      "event": "error",
+      "text": "The harness stopped answering"
+    },
+    {
+      "attachments": [],
+      "input": "prompt",
+      "text": "Run the tests again"
+    },
+    {
+      "id": "a1",
+      "input": "approval_answer",
+      "option": "once"
+    },
+    {
+      "input": "cancel"
+    }
+  ],
+  "description": "The structured tier's neutral event model: host-to-client events keyed `event`, client-to-host inputs keyed `input`. Each body decodes and re-encodes to itself; each invalid one is refused.",
+  "invalid": [
+    {},
+    {
+      "event": "status",
+      "state": "sleeping"
+    },
+    {
+      "event": "tool_call",
+      "id": "c",
+      "kind": "launch",
+      "status": "done",
+      "title": "t"
+    },
+    {
+      "detail": "d",
+      "event": "approval_request",
+      "id": "a",
+      "options": [
+        {
+          "id": "x",
+          "kind": "maybe",
+          "label": "X"
+        }
+      ],
+      "title": "t"
+    },
+    {
+      "id": "a1",
+      "input": "approval_answer"
+    },
+    {
+      "input": "auto_approve"
+    }
+  ],
+  "schema": "airdress.shell.structured.v1",
+  "tolerated": [
+    {
+      "event": "status",
+      "extra": true,
+      "state": "idle"
+    },
+    {
+      "event": "status",
+      "input": "cancel",
+      "state": "idle"
+    },
+    {
+      "detail": "d",
+      "event": "approval_request",
+      "id": "a",
+      "options": [
+        {
+          "hotkey": "n",
+          "id": "x",
+          "kind": "deny",
+          "label": "X"
+        }
+      ],
+      "title": "t"
+    },
+    {
+      "input": "prompt",
+      "text": "go",
+      "voice": true
+    }
+  ]
+}

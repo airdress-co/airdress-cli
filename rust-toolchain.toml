@@ -1,0 +1,20 @@
+# One rustc for local builds, CI and release (rust guide R-WS-9). Floating
+# `stable` let a workstation and CI disagree on lints in the operator
+# (2026-08-27); here it would also move the bytes of the `airdress-mcp`
+# artifact the editor plugin pins by SHA-256. 1.98.0 is what that artifact
+# is built with today, and what the operator and the launcher pin.
+#
+# Newer than `rust-version` (1.92) on purpose: the MSRV job proves the floor,
+# this pin is where the newest lints are seen (R-API-7).
+#
+# The musl targets are here because the plugin's server build compiles this
+# repository inside a container with a script this repository does not
+# control: without them rustup installs 1.98.0 bare and the build fails with
+# "can't find crate for `core`" (the operator's 2026-08-31 failure). Every
+# other target is added by the workflow that needs it, with `rustup target
+# add`, which acts on this toolchain because it runs in this directory.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]
+profile = "minimal"

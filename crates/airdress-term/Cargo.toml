@@ -1,0 +1,21 @@
+[package]
+name = "airdress-term"
+version = "0.1.0"
+description = "A terminal screen model for Airdress shell clients: VT parsing and a cell grid over a C ABI"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# rlib for tests; cdylib is the Android `.so` the app loads through the C
+# ABI in `src/ffi.rs`, next to the protocol crate's.
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+# The emulator is alacritty's (Apache-2.0), pinned exactly: the app paints
+# what this crate reports, cell by cell, so a parser change is a reviewed
+# change and not a lockfile drift.
+[dependencies]
+alacritty_terminal = { version = "=0.26.0", default-features = false }

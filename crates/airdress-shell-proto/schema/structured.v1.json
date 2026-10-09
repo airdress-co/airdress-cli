@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://airdress.co/schemas/airdress.shell.structured.v1.json",
+  "title": "airdress.shell.structured.v1",
+  "description": "The body of an inner `structured` message: one host-to-client event (keyed `event`) or one client-to-host input (keyed `input`). An item with an `id` replaces the earlier one with that id.",
+  "oneOf": [
+    { "$ref": "#/$defs/status" },
+    { "$ref": "#/$defs/message" },
+    { "$ref": "#/$defs/thought" },
+    { "$ref": "#/$defs/tool_call" },
+    { "$ref": "#/$defs/tool_result" },
+    { "$ref": "#/$defs/diff" },
+    { "$ref": "#/$defs/plan" },
+    { "$ref": "#/$defs/approval_request" },
+    { "$ref": "#/$defs/approval_resolved" },
+    { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/prompt" },
+    { "$ref": "#/$defs/approval_answer" },
+    { "$ref": "#/$defs/cancel" }
+  ],
+  "$defs": {
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "state"],
+      "properties": {
+        "event": { "const": "status" },
+        "state": { "enum": ["idle", "working", "waiting_for_input", "waiting_for_approval", "ended"] }
+      }
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "id", "role", "text"],
+      "properties": {
+        "event": { "const": "message" },
+        "id": { "type": "string" },
+        "role": { "enum": ["user", "assistant"] },
+        "text": { "type": "string" },
+        "append": { "type": "boolean", "default": false },
+        "final": { "type": "boolean", "default": false }
+      }
+    },
+    "thought": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "id", "text"],
+      "properties": {
+        "event": { "const": "thought" },
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "append": { "type": "boolean", "default": false }
+      }
+    },
+    "tool_call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "id", "title", "kind", "status"],
+      "properties": {
+        "event": { "const": "tool_call" },
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "kind": { "enum": ["read", "edit", "execute", "search", "fetch", "other"] },
+        "status": { "enum": ["pending", "running", "done", "failed"] },
+        "input": { "type": "string", "default": "" }
+      }
+    },
+    "tool_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "id", "text"],
+      "properties": {
+        "event": { "const": "tool_result" },
+        "id": { "type": "string" },
+        "text": { "type": "string", "maxLength": 16384 },
+        "exitCode": { "type": "integer" },
+        "truncated": { "type": "boolean", "default": false }
+      }
+    },
+    "diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "toolCallId", "path", "unified"],
+      "properties": {
+        "event": { "const": "diff" },
+        "toolCallId": { "type": "string" },
+        "path": { "type": "string" },
+        "unified": { "type": "string", "maxLength": 262144 },
+        "truncated": { "type": "boolean", "default": false }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "entries"],
+      "properties": {
+        "event": { "const": "plan" },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text", "status"],
+            "properties": {
+              "text": { "type": "string" },
+              "status": { "enum": ["pending", "in_progress", "completed"] }
+            }
+          }
+        }
+      }
+    },
+    "approval_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "id", "title", "detail", "options"],
+      "properties": {
+        "event": { "const": "approval_request" },
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "detail": { "type": "string" },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label", "kind"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "kind": { "enum": ["allow_once", "allow_always", "deny"] }
+            }
+          }
+        }
+      }
+    },
+    "approval_resolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "id", "outcome"],
+      "properties": {
+        "event": { "const": "approval_resolved" },
+        "id": { "type": "string" },
+        "outcome": { "enum": ["answered", "withdrawn"] }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "text"],
+      "properties": {
+        "event": { "const": "error" },
+        "text": { "type": "string" }
+      }
+    },
+    "prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "text"],
+      "properties": {
+        "input": { "const": "prompt" },
+        "text": { "type": "string" },
+        "attachments": { "type": "array", "maxItems": 0, "default": [] }
+      }
+    },
+    "approval_answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "id", "option"],
+      "properties": {
+        "input": { "const": "approval_answer" },
+        "id": { "type": "string" },
+        "option": { "type": "string" }
+      }
+    },
+    "cancel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input"],
+      "properties": {
+        "input": { "const": "cancel" }
+      }
+    }
+  }
+}

@@ -1,0 +1,540 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prek:
+    name: Pre-commit (prek)
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        # prek runs `cargo clippy` as a local hook, so it compiles and
+        # needs libdbus exactly as the build jobs do. PR #21 added this
+        # to Build & Lint and Unit Tests but not here, on the mistaken
+        # assumption that a lint job does not build.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pre-commit/action@v3.0.1
+
+  attribution:
+    name: Commit attribution
+    # The commit-msg hook is local and can be skipped; this is the same check
+    # over what actually arrived. A pull request is checked from its base, a
+    # push from the commit before it (a new branch or a root: everything).
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fixtures
+        run: scripts/check-commit-attribution-test.sh
+      - name: Pushed commits
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] ||
+              ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            scripts/check-commit-attribution.py range "$HEAD"
+          else
+            scripts/check-commit-attribution.py range "$BASE..$HEAD"
+          fi
+
+  lint:
+    name: Build & Lint
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        # The keyring crate (device root-key storage) links libdbus via
+        # Secret Service on Linux, so a bare runner fails at build time
+        # with "dbus-devel pkgconf-pkg-config" and an explicit panic out
+        # of libdbus-sys' build script. CI has been red on this since
+        # 2026-09-03; the same fix landed in airdress-chat as PR #60.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+  msrv:
+    name: MSRV (rust-version in Cargo.toml)
+    # The floor `rust-version` declares, proven on exactly that compiler
+    # (R-API-7). rust-toolchain.toml pins a newer one for everything else;
+    # RUSTUP_TOOLCHAIN takes precedence over the file.
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Check on the declared MSRV
+        run: |
+          set -euo pipefail
+          msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          [ -n "$msrv" ] || { echo "::error::no rust-version in Cargo.toml"; exit 1; }
+          rustup toolchain install "$msrv" --profile minimal
+          RUSTUP_TOOLCHAIN="$msrv" cargo check --workspace --all-targets --locked
+
+  test:
+    name: Unit Tests
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        # The keyring crate (device root-key storage) links libdbus via
+        # Secret Service on Linux, so a bare runner fails at build time
+        # with "dbus-devel pkgconf-pkg-config" and an explicit panic out
+        # of libdbus-sys' build script. CI has been red on this since
+        # 2026-09-03; the same fix landed in airdress-chat as PR #60.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - run: cargo test --locked --workspace
+
+  catalogue-parity:
+    name: MCP catalogue parity with the operator's remote server
+    # The stdio server and the operator's /v1/mcp serve one catalogue. The
+    # operator cannot depend on this crate, so both repositories commit
+    # catalogue.json: the unit test above holds this side to it, the
+    # operator's remote_mcp tests hold that side to its copy, and this job
+    # fails when the two copies differ. Change the operator's copy first
+    # (and whatever it then has to serve), then this one.
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/create-github-app-token@v1
+        id: token
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          owner: airdress-co
+          repositories: airdress-operator
+      - name: The operator's copy is byte for byte this one
+        env:
+          TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/airdress-co/airdress-operator/contents/crates/airdress-operator/src/remote_mcp/catalogue.json?ref=main" \
+            -o operator-catalogue.json
+          if ! cmp -s operator-catalogue.json crates/airdress-mcp-catalogue/catalogue.json; then
+            echo "::error::the operator's remote MCP catalogue differs from this one"
+            diff -u operator-catalogue.json crates/airdress-mcp-catalogue/catalogue.json || true
+            exit 1
+          fi
+
+  agent-bus:
+    name: Agent bus (client, channel push, delivery fallback)
+    # Signing (the canonicalization and signature vectors the operator
+    # commits too), peer verification and pins, policy memory, channel
+    # push and the read fallback against a mock operator that checks every
+    # signature. Not behind the `mls` feature: the server signs through
+    # the device host's socket. Each test file is named here.
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Unit tests
+        run: "cargo test --locked -p airdress --lib -- agent_bus:: mcp::bus mcp::channel_push mcp::chat"
+      - name: Push and the read fallback, end to end
+        run: cargo test --locked -p airdress-mcp --test bus_delivery
+      # Agent chat at the server's edge: the tools, the push, the read
+      # fallback and the no-device-host sentence, against a stand-in host.
+      - name: Chat tools and push, end to end
+        run: cargo test --locked -p airdress-mcp --test chat_delivery
+      - name: Assigning a conversation to an agent device (owner routes)
+        run: cargo test --locked -p airdress --test chat_assign
+
+  deny:
+    name: Licences, advisories and the telemetry bans
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      # The cargo-deny BINARY on the runner, not
+      # `EmbarkStudios/cargo-deny-action`, which runs in a container and
+      # therefore cannot see the git credential the step above just set
+      # up for the private dependency. Its failure read "revision … not
+      # found: failed to authenticate", which looks like a licence
+      # problem and is not one.
+      - name: Licences, advisories, bans and sources
+        env:
+          DENY_VERSION: 0.20.2
+          DENY_SHA256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+        run: |
+          set -euo pipefail
+          tarball="cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          curl -sSfL -o "$tarball" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_VERSION}/${tarball}"
+          echo "${DENY_SHA256}  ${tarball}" | sha256sum -c -
+          tar xzf "$tarball" --strip-components=1 \
+            "cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl/cargo-deny"
+          ./cargo-deny --all-features check licenses advisories bans sources
+      # The list a reader checks the gate against.
+      - run: scripts/third-party.sh --check
+
+  shell-proto:
+    name: Shell protocol (vectors, conversation, fault model, wasm, Android symbols)
+    # The protocol crate the host, the CLI, the app (through the C ABI) and
+    # the editor (through wasm) share. Each test file is named here, because
+    # they need the `conformance` feature and `cargo test --workspace`
+    # skips them without it.
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install && rustup target add wasm32-unknown-unknown aarch64-linux-android
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Unit tests, vectors, conversation suite, fault model
+        run: >-
+          cargo test --locked -p airdress-shell-proto --features conformance
+          --lib --test vectors --test conversation --test fault_injection
+          --test structured_schema
+          --test structured_schema
+      - name: Builds for wasm32
+        run: cargo build --locked -p airdress-shell-proto --target wasm32-unknown-unknown --lib
+      - name: The Android library exports exactly ffi-symbols.txt
+        run: |
+          cargo install cargo-ndk --locked --version 4.1.2
+          scripts/shell-proto-ffi-symbols.sh
+      - name: The reference host over its C ABI (what client suites load)
+        run: cargo test --locked -p airdress-shell-mock-host
+
+  term:
+    name: Terminal model (unit tests, Android symbols)
+    # The screen model the Android app paints from, over the C ABI beside
+    # the protocol crate's.
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install && rustup target add aarch64-linux-android
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Unit tests
+        run: cargo test --locked -p airdress-term
+      - name: The Android library exports exactly ffi-symbols.txt
+        run: |
+          cargo install cargo-ndk --locked --version 4.1.2
+          scripts/term-ffi-symbols.sh
+
+  mls-feature:
+    name: MLS engine (off by default, links when on)
+    # The shared MLS engine (airdress-mls) is an optional dependency
+    # behind the `mls` feature. Two claims, both checked: the default
+    # build has no MLS in its dependency tree at all, and with the
+    # feature on this crate builds, lints and runs the engine.
+    # tests/mls_feature.rs is `#![cfg(feature = "mls")]`, so
+    # `cargo test --workspace` compiles it empty; it runs here.
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: The default build carries no MLS
+        run: |
+          set -euo pipefail
+          if cargo tree --workspace --locked -e normal --prefix none \
+              | grep -qE '^(mls-rs|mls-rs-core|airdress-mls|airdress-mls-client) '; then
+            echo "::error::MLS is in the default dependency tree"
+            exit 1
+          fi
+          echo "default tree: no MLS"
+      - name: Clippy with the feature on
+        run: cargo clippy -p airdress --locked --features mls --all-targets -- -D warnings
+      - name: The shared vectors and a two-engine exchange through airdress::mls
+        run: cargo test -p airdress --locked --features mls --test mls_feature
+      - name: The agent device (host, join, renewal, expiry)
+        run: |
+          cargo test -p airdress --locked --features mls --lib agent_device
+          cargo test -p airdress --locked --features mls --test agent_device
+      # Agent chat in the device host: the own lane founded with a second,
+      # real MLS member playing the operator's agent; the sealed store.
+      - name: Agent chat (own lane round trip, sealed store)
+        run: cargo test -p airdress --locked --features mls --test agent_chat
+
+  hub-login:
+    name: Sign-in through the hub (mock authorization server, per-airdress tokens)
+    # `auth login` against the hub's authorization server: discovery and the
+    # legacy fallback, the device and loopback flows, one grant with a token
+    # per operator, refresh-token rotation under concurrency, and moving a
+    # v2 profile to v3. Each test file is named here; the unit tests run
+    # under --lib.
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Unit tests
+        run: cargo test --locked -p airdress --lib 'auth::'
+      - name: Discovery, both flows, per-operator tokens and the v2 to v3 move against a mock hub
+        run: cargo test --locked -p airdress --test hub_login
+
+  shell-client:
+    name: Shell client (mock operator, fault model, join)
+    # The CLI's half of shells, end to end against a mock operator over real
+    # HTTP with the protocol crate's reference host behind it. Each test
+    # file is named here; the unit tests run under --lib.
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Unit tests
+        run: cargo test --locked -p airdress --lib 'shell_client::'
+      - name: Open, stream, take-over and resume against a mock operator; the fault model; the join
+        run: >-
+          cargo test --locked -p airdress
+          --test shell_client --test shell_client_faults --test shell_client_join
+
+  shell-host:
+    name: Shell host (PTY sessions, a mock operator over W and P, probes, no user switching)
+    # The host role: real sessions on real PTYs, driven end to end by
+    # devices that speak the protocol, through a mock operator over both
+    # transports. Each test file is named here: they need the `testkit`
+    # feature, so `cargo test --workspace` skips them. The probe watcher
+    # traces the host with strace and is `#[ignore]`d without it.
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config strace
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Unit tests, the host against a mock operator, the probe watcher
+        run: >-
+          cargo test --locked -p airdress-shell-host --features testkit
+          --lib --test host_e2e --test host_poll --test probe_files
+          -- --include-ignored
+      # The structured tier against stand-in harnesses (python3, on the
+      # runner image) for each adapter's protocol: ACP, the app server, the
+      # HTTP + SSE server, and hooks on the event socket.
+      - name: The structured tier end to end
+        run: cargo test --locked -p airdress-shell-host --features testkit --test structured_e2e
+      - name: This CLI's own client session against the real host
+        run: cargo test --locked -p airdress --test shell_interop
+      - name: No user switching in the host
+        run: scripts/shell-host-no-user-switch.sh
+
+  shell-proto-netem:
+    name: Shell protocol over sockets under netem
+    # Real TCP between the reference client, a cutting proxy and the
+    # reference host, with delay, jitter, loss and reordering on loopback.
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - name: Build the harness
+        run: cargo test --locked -p airdress-shell-proto --features conformance --test netem --no-run
+      - name: netem on loopback
+        run: |
+          sudo modprobe sch_netem || sudo apt-get install -y "linux-modules-extra-$(uname -r)" && sudo modprobe sch_netem
+          sudo tc qdisc add dev lo root netem delay 40ms 20ms distribution normal loss 1% reorder 5% 50%
+          tc qdisc show dev lo
+      - name: Cuts, the idle cut and address changes under netem
+        run: cargo test --locked -p airdress-shell-proto --features conformance --test netem -- --ignored --nocapture
+      - name: Remove netem
+        if: always()
+        run: sudo tc qdisc del dev lo root || true
+
+  egress:
+    name: Egress allowlist
+    # The server must reach the user's hub and operators and nothing
+    # else. The session test drives every tool against mocks with every
+    # proxy variable pointing at a closed port; here it runs again
+    # inside a network namespace where only loopback is up, so a request
+    # to any other host cannot succeed even in principle.
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libdbus-1-dev pkg-config iproute2
+      # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
+      # `rustup toolchain install` with no argument installs the file's.
+      - name: Rust toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install
+      - uses: ./.github/actions/private-deps
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      - run: scripts/egress-allowlist-test.sh
+
+  hygiene:
+    name: Public hygiene and document numbers
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: scripts/check-doc-numbers.sh
+      # The tracked files, which a change can fix. The full-history scan
+      # (`--history`) is the pre-publication audit; its findings are
+      # recorded in docs/public-audit.md and decided by the owner, so it
+      # is not a gate on every pull request.
+      - run: scripts/check-public.sh
+
+      # The gitleaks BINARY, pinned and checksummed — not
+      # `gitleaks/gitleaks-action`, which refuses to run for an
+      # organisation without a paid licence ("[airdress-co] is an
+      # organization. License key is required."). The tool itself is
+      # MIT; only that action is licensed. Running the binary is also
+      # one less third-party action with a token in our CI.
+      - name: Secrets, over the whole history
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
+          tar xzf "$tarball" gitleaks
+          ./gitleaks git --redact -v -c .gitleaks.toml .

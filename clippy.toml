@@ -1,0 +1,18 @@
+# Architecture as disallowed items (rust guide R-LNT-4), cargo's form:
+# reason + replacement. An entry commented out below fires today; its count
+# and the follow-up that re-enables it are beside it.
+avoid-breaking-exported-api = false
+disallowed-types = [
+  # 130 sites (shell host, shell client, MCP). Follow-up: tokio::time::Instant.
+  # { path = "std::time::Instant", reason = "not pausable in tests", replacement = "tokio::time::Instant" },
+]
+disallowed-methods = [
+  { path = "std::env::set_var",    reason = "data race in a multi-threaded process; pass config in (R-ASY-9)" },
+  { path = "std::env::remove_var", reason = "as set_var" },
+  # The test kit's three are `#[expect]`ed with their reason.
+  { path = "tokio::sync::mpsc::unbounded_channel", reason = "an unbounded queue is a leak with a delay (R-ASY-5)", replacement = "tokio::sync::mpsc::channel" },
+  # 5 sites (`functions`, `mcp`, shell host). Follow-up (R-ASY-7).
+  # { path = "std::process::Command::output", reason = "blocks the executor (R-ASY-7)", replacement = "tokio::process::Command::output" },
+  # { path = "std::process::Command::status", reason = "blocks the executor (R-ASY-7)", replacement = "tokio::process::Command::status" },
+  { path = "serde_json::from_reader", reason = "much slower than parsing a buffer", replacement = "serde_json::from_slice" },
+]

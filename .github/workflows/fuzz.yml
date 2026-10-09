@@ -1,0 +1,61 @@
+name: Fuzz
+# The shell protocol's wire parsers (rust guide R-TST-3). On a pull request
+# that touches the protocol crate, every target is built and run for 60 s;
+# nightly, for 10 minutes each. A crash fails the job and uploads the input.
+#
+# Its own workflow rather than a job in ci.yml so the path filter is the
+# trigger's: a PR that does not touch the crate does not wait on a nightly
+# toolchain at all.
+on:
+  pull_request:
+    paths:
+      - "crates/airdress-shell-proto/**"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell-proto:
+    name: Fuzz shell protocol
+    timeout-minutes: 75
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: crates/airdress-shell-proto/fuzz
+    env:
+      SECONDS_PER_TARGET: ${{ github.event_name == 'schedule' && '600' || '60' }}
+    steps:
+      - uses: actions/checkout@v4
+      # Nightly for the sanitizer flags cargo-fuzz passes; rust-toolchain.toml's
+      # pin is for shipped bytes, and `+nightly` overrides it here only.
+      - name: Nightly toolchain and cargo-fuzz
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo +nightly install cargo-fuzz --locked
+      - name: Seed corpora from the conformance vectors
+        run: python3 seed-corpus.py
+      - name: Build every target
+        run: cargo +nightly fuzz build
+      # `--target` because cargo-fuzz would otherwise pick up a musl default
+      # where the sanitizer cannot link.
+      - name: Run each target
+        run: |
+          set -euo pipefail
+          for t in $(cargo +nightly fuzz list); do
+            echo "::group::$t (${SECONDS_PER_TARGET}s)"
+            cargo +nightly fuzz run --target x86_64-unknown-linux-gnu "$t" -- \
+              -max_total_time="$SECONDS_PER_TARGET"
+            echo "::endgroup::"
+          done
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: crates/airdress-shell-proto/fuzz/artifacts
+          if-no-files-found: ignore

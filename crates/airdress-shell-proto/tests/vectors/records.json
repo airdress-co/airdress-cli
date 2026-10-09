@@ -1,0 +1,248 @@
+{
+  "description": "Records: n (u64 BE) ‖ ChaChaPoly(k, n, ad=\"\", p) with Noise nonce encoding; Noise REKEY; the 1,024-record replay window and rekey switch-over.",
+  "rekey": [
+    {
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "next": "3fc9d0f8286f356833ad4abd3c34778374c610f5ce1af0b9365f7d6040674be6"
+    },
+    {
+      "key": "3fc9d0f8286f356833ad4abd3c34778374c610f5ce1af0b9365f7d6040674be6",
+      "next": "8b53b0b8c0f7f25722075a42b21146ba04b3966051e33f1bd5daa8c5d94b83b7"
+    }
+  ],
+  "seal": [
+    {
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "nonce": 0,
+      "plaintext": "",
+      "record": "00000000000000002ad661e1e00eda615474ef5749dc7dcb"
+    },
+    {
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "nonce": 1,
+      "plaintext": "68656c6c6f",
+      "record": "00000000000000011bbe2ecec0d43ba9c5ee4a023a3322cc9dfa92c1be"
+    },
+    {
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "nonce": 1023,
+      "plaintext": "78",
+      "record": "00000000000003ff86729dcbab149ec60e180891badb29b321"
+    },
+    {
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "nonce": 18446744073709551613,
+      "plaintext": "6c61737420757361626c65206e6f6e6365",
+      "record": "fffffffffffffffd793c61bb2c79c1f667f3c0e47ea30dac408d1960dc8e997d37fd75b59fa7729a81"
+    }
+  ],
+  "window": [
+    {
+      "announcements": [],
+      "arrivals": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "expect": [
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "name": "in order"
+    },
+    {
+      "announcements": [],
+      "arrivals": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "expect": [
+        "ok",
+        "replay"
+      ],
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "name": "a duplicate"
+    },
+    {
+      "announcements": [],
+      "arrivals": [
+        [
+          5,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          3,
+          0
+        ]
+      ],
+      "expect": [
+        "ok",
+        "ok",
+        "ok",
+        "replay"
+      ],
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "name": "reordered within the window, then a duplicate"
+    },
+    {
+      "announcements": [],
+      "arrivals": [
+        [
+          2000,
+          0
+        ],
+        [
+          976,
+          0
+        ],
+        [
+          977,
+          0
+        ]
+      ],
+      "expect": [
+        "ok",
+        "replay",
+        "ok"
+      ],
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "name": "1024 behind is outside, 1023 inside"
+    },
+    {
+      "announcements": [
+        [
+          3,
+          3
+        ]
+      ],
+      "arrivals": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          5,
+          0
+        ]
+      ],
+      "expect": [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "auth"
+      ],
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "name": "an announced rekey at 3; the old key is refused past it"
+    },
+    {
+      "announcements": [
+        [
+          3,
+          3
+        ]
+      ],
+      "arrivals": [
+        [
+          3,
+          1
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "expect": [
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "name": "new-key records overtake the announcement"
+    },
+    {
+      "announcements": [],
+      "arrivals": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          2
+        ]
+      ],
+      "expect": [
+        "ok",
+        "auth"
+      ],
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "name": "two rekeys ahead with no announcement is not guessed"
+    },
+    {
+      "announcements": [],
+      "arrivals": [
+        [
+          18446744073709551615,
+          0
+        ]
+      ],
+      "expect": [
+        "shell_record_rejected"
+      ],
+      "key": "9228d3647eb070ea28d935622390b66bb747436958327b126885ebac7f3f7be3",
+      "name": "the reserved nonce"
+    }
+  ]
+}

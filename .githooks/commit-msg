@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# core.hooksPath points here (see `just hooks-install`), so git never reads
+# the commit-msg hook `prek install` writes under .git/hooks. Run prek's
+# commit-msg stage from here instead. Without prek, run the check directly:
+# refusing an AI-attributed commit must not depend on a tool being installed.
+set -euo pipefail
+if command -v prek >/dev/null 2>&1; then
+    exec prek run --hook-stage commit-msg --commit-msg-filename "$1"
+fi
+exec "$(git rev-parse --show-toplevel)/scripts/check-commit-attribution.py" commit-msg "$1"

@@ -1,0 +1,17 @@
+name: airdress
+arch: ${DEB_ARCH}
+platform: linux
+version: ${DEB_VERSION}
+section: utils
+priority: optional
+maintainer: Airdress <noc@airdress.co>
+description: |
+  Airdress CLI — auth, profiles, and credential management.
+vendor: Airdress
+homepage: https://airdress.co
+license: MPL-2.0
+contents:
+  - src: ${BINARY_PATH}
+    dst: /usr/bin/airdress
+    file_info:
+      mode: 0755

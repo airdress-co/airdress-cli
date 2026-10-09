@@ -1,0 +1,149 @@
+{
+  "description": "Unlock signatures (ECDSA P-256, SHA-256, DER) over \"airdress.shell.presence.v1\" ‖ 0x00 ‖ handshake_hash ‖ action, and device-key statements under the presence rule: none only for a cli kind.",
+  "deviceKeys": [
+    {
+      "expect": "unlock",
+      "keys": {
+        "device": "0199a1b2-0000-4000-8000-00000000a001",
+        "dhPublic": "HFLBCxtV02+m1ogqGP0/xhCjDxKtHPk+cmC0AW3ZWRE=",
+        "identityPublic": "5I1ivn1E3RkEiV0gWKZ3gqHn4E+eQdEvSZkAvc2zEqk=",
+        "presenceAlg": "p256",
+        "presencePublic": "A3syFWFNyIpNEuWXWr0xSda1q8LEDfyHEAIIUVySOL/3",
+        "principal": "principal-owner"
+      },
+      "name": "a phone with a presence key",
+      "sig": "2751be472bacd5741e624bde828e6685b3316b3b13ffd81aef450e9324f5c940efb54a693517237b965937f723c4e41b6910c2f8ebe9800b1cc6f84103a89305",
+      "signedBytes": "61697264726573732e7368656c6c2e6465766963652d6b6579732e7631000199a1b200004000800000000000a0011c52c10b1b55d36fa6d6882a18fd3fc610a30f12ad1cf93e7260b4016dd959117032353600037b3215614dc88a4d12e5975abd3149d6b5abc2c40dfc87100208515c9238bff7",
+      "verifiedKind": "phone"
+    },
+    {
+      "expect": "not_required",
+      "keys": {
+        "device": "0199a1b2-0000-4000-8000-00000000c011",
+        "dhPublic": "feG+z3LVmwfibi1Od+QP4qSDXZHpkSi5D+llE9eKkgk=",
+        "identityPublic": "MSqnicnldXYlCzrcYThFE7m9pOIf9qUl/MIPeqX4YiA=",
+        "presenceAlg": "none",
+        "principal": "principal-owner"
+      },
+      "name": "a CLI with none, of kind cli: accepted",
+      "sig": "99ab35ff06fc1b3cb13b5eb39a0adf61c7dccf51811a6d276b26d95e21c28cd0694a653d89dcdfee14f87711d02c85613ac69a14bbcd133d2eb0f3f7df309705",
+      "signedBytes": "61697264726573732e7368656c6c2e6465766963652d6b6579732e7631000199a1b200004000800000000000c0117de1becf72d59b07e26e2d4e77e40fe2a4835d91e99128b90fe96513d78a92096e6f6e6500",
+      "verifiedKind": "cli"
+    },
+    {
+      "expect": "shell_presence_required",
+      "keys": {
+        "device": "0199a1b2-0000-4000-8000-00000000a001",
+        "dhPublic": "HFLBCxtV02+m1ogqGP0/xhCjDxKtHPk+cmC0AW3ZWRE=",
+        "identityPublic": "5I1ivn1E3RkEiV0gWKZ3gqHn4E+eQdEvSZkAvc2zEqk=",
+        "presenceAlg": "none",
+        "principal": "principal-owner"
+      },
+      "name": "a device that signed none, of kind phone: refused",
+      "sig": "67350716402cafd957738d8b7b16b3d6cbb0db8d7a0ff845a065181463d392b47a16d4f1e7784cb734ed0614f372cbb0b34920f332e12f65b28591c6129a7904",
+      "signedBytes": "61697264726573732e7368656c6c2e6465766963652d6b6579732e7631000199a1b200004000800000000000a0011c52c10b1b55d36fa6d6882a18fd3fc610a30f12ad1cf93e7260b4016dd959116e6f6e6500",
+      "verifiedKind": "phone"
+    },
+    {
+      "expect": "shell_presence_required",
+      "keys": {
+        "device": "0199a1b2-0000-4000-8000-00000000a001",
+        "dhPublic": "HFLBCxtV02+m1ogqGP0/xhCjDxKtHPk+cmC0AW3ZWRE=",
+        "identityPublic": "5I1ivn1E3RkEiV0gWKZ3gqHn4E+eQdEvSZkAvc2zEqk=",
+        "presenceAlg": "none",
+        "principal": "principal-owner"
+      },
+      "name": "the operator rewrote a phone's statement to none",
+      "sig": "2751be472bacd5741e624bde828e6685b3316b3b13ffd81aef450e9324f5c940efb54a693517237b965937f723c4e41b6910c2f8ebe9800b1cc6f84103a89305",
+      "signedBytes": "61697264726573732e7368656c6c2e6465766963652d6b6579732e7631000199a1b200004000800000000000a0011c52c10b1b55d36fa6d6882a18fd3fc610a30f12ad1cf93e7260b4016dd959116e6f6e6500",
+      "verifiedKind": "phone"
+    },
+    {
+      "expect": "shell_presence_required",
+      "keys": {
+        "device": "0199a1b2-0000-4000-8000-00000000a001",
+        "dhPublic": "HFLBCxtV02+m1ogqGP0/xhCjDxKtHPk+cmC0AW3ZWRE=",
+        "identityPublic": "5I1ivn1E3RkEiV0gWKZ3gqHn4E+eQdEvSZkAvc2zEqk=",
+        "presenceAlg": "none",
+        "principal": "principal-owner"
+      },
+      "name": "the operator rewrote it and claims cli: the signature still fails",
+      "sig": "2751be472bacd5741e624bde828e6685b3316b3b13ffd81aef450e9324f5c940efb54a693517237b965937f723c4e41b6910c2f8ebe9800b1cc6f84103a89305",
+      "signedBytes": "61697264726573732e7368656c6c2e6465766963652d6b6579732e7631000199a1b200004000800000000000a0011c52c10b1b55d36fa6d6882a18fd3fc610a30f12ad1cf93e7260b4016dd959116e6f6e6500",
+      "verifiedKind": "cli"
+    },
+    {
+      "expect": "unlock",
+      "keys": {
+        "device": "0199a1b2-0000-4000-8000-00000000a001",
+        "dhPublic": "HFLBCxtV02+m1ogqGP0/xhCjDxKtHPk+cmC0AW3ZWRE=",
+        "identityPublic": "5I1ivn1E3RkEiV0gWKZ3gqHn4E+eQdEvSZkAvc2zEqk=",
+        "presenceAlg": "p256",
+        "presencePublic": "A3syFWFNyIpNEuWXWr0xSda1q8LEDfyHEAIIUVySOL/3",
+        "principal": "principal-owner"
+      },
+      "name": "a CLI-kind device with a presence key still unlocks",
+      "sig": "2751be472bacd5741e624bde828e6685b3316b3b13ffd81aef450e9324f5c940efb54a693517237b965937f723c4e41b6910c2f8ebe9800b1cc6f84103a89305",
+      "signedBytes": "61697264726573732e7368656c6c2e6465766963652d6b6579732e7631000199a1b200004000800000000000a0011c52c10b1b55d36fa6d6882a18fd3fc610a30f12ad1cf93e7260b4016dd959117032353600037b3215614dc88a4d12e5975abd3149d6b5abc2c40dfc87100208515c9238bff7",
+      "verifiedKind": "cli"
+    }
+  ],
+  "unlock": [
+    {
+      "action": "open",
+      "expect": "ok",
+      "handshakeHash": "1f23d8ceec8ae4c294b8b07b47aaf8b4fee09f9a41b0245889c464bb57a3797c",
+      "name": "a valid low-S unlock for open",
+      "presencePublic": "037b3215614dc88a4d12e5975abd3149d6b5abc2c40dfc87100208515c9238bff7",
+      "sig": "3045022100e69d23a25009c1773ab3b819847b4b84f6cfb882fd0fa07c72bb34e4e3681cab022034b5e4b1c46c21208021d973bb1bce6738846efb4355102f247e014f7b99f4e0"
+    },
+    {
+      "action": "open",
+      "expect": "ok",
+      "handshakeHash": "1f23d8ceec8ae4c294b8b07b47aaf8b4fee09f9a41b0245889c464bb57a3797c",
+      "name": "the same key, uncompressed",
+      "presencePublic": "047b3215614dc88a4d12e5975abd3149d6b5abc2c40dfc87100208515c9238bff78a2660a9519e96ed48ce3b8269ee07af6883b635ba12ab379926693f7df262bd",
+      "sig": "3045022100e69d23a25009c1773ab3b819847b4b84f6cfb882fd0fa07c72bb34e4e3681cab022034b5e4b1c46c21208021d973bb1bce6738846efb4355102f247e014f7b99f4e0"
+    },
+    {
+      "action": "attach",
+      "expect": "ok",
+      "handshakeHash": "1f23d8ceec8ae4c294b8b07b47aaf8b4fee09f9a41b0245889c464bb57a3797c",
+      "name": "a valid unlock for attach",
+      "presencePublic": "037b3215614dc88a4d12e5975abd3149d6b5abc2c40dfc87100208515c9238bff7",
+      "sig": "304402203bb02e5a945f9cf0e10de171383224fb8a918ab5ea46e08c94ce0121a4b7add802204a62ce74ebdee48d81176080484d559bf1c6a7f602e3651f93a35cb7eff218ff"
+    },
+    {
+      "action": "open",
+      "expect": "ok",
+      "handshakeHash": "1f23d8ceec8ae4c294b8b07b47aaf8b4fee09f9a41b0245889c464bb57a3797c",
+      "name": "high-S, as Keystore may produce it",
+      "presencePublic": "037b3215614dc88a4d12e5975abd3149d6b5abc2c40dfc87100208515c9238bff7",
+      "sig": "3046022100e69d23a25009c1773ab3b819847b4b84f6cfb882fd0fa07c72bb34e4e3681cab022100cb4a1b4d3b93dee07fde268c44e4319884628bb263c28e55cf3bc97380c93071"
+    },
+    {
+      "action": "attach",
+      "expect": "shell_presence_required",
+      "handshakeHash": "1f23d8ceec8ae4c294b8b07b47aaf8b4fee09f9a41b0245889c464bb57a3797c",
+      "name": "an open signature presented for attach",
+      "presencePublic": "037b3215614dc88a4d12e5975abd3149d6b5abc2c40dfc87100208515c9238bff7",
+      "sig": "3045022100e69d23a25009c1773ab3b819847b4b84f6cfb882fd0fa07c72bb34e4e3681cab022034b5e4b1c46c21208021d973bb1bce6738846efb4355102f247e014f7b99f4e0"
+    },
+    {
+      "action": "open",
+      "expect": "shell_presence_required",
+      "handshakeHash": "7e8da65e68ce1bf1722da8179f1288fbcb57ee190caf38443be5ca33c8d8e46c",
+      "name": "a stale handshake hash",
+      "presencePublic": "037b3215614dc88a4d12e5975abd3149d6b5abc2c40dfc87100208515c9238bff7",
+      "sig": "3045022100e69d23a25009c1773ab3b819847b4b84f6cfb882fd0fa07c72bb34e4e3681cab022034b5e4b1c46c21208021d973bb1bce6738846efb4355102f247e014f7b99f4e0"
+    },
+    {
+      "action": "open",
+      "expect": "shell_presence_required",
+      "handshakeHash": "1f23d8ceec8ae4c294b8b07b47aaf8b4fee09f9a41b0245889c464bb57a3797c",
+      "name": "a raw r‖s signature instead of DER",
+      "presencePublic": "037b3215614dc88a4d12e5975abd3149d6b5abc2c40dfc87100208515c9238bff7",
+      "sig": "e69d23a25009c1773ab3b819847b4b84f6cfb882fd0fa07c72bb34e4e3681cab34b5e4b1c46c21208021d973bb1bce6738846efb4355102f247e014f7b99f4e0"
+    }
+  ]
+}

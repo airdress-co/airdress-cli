@@ -1,0 +1,28 @@
+[package]
+name = "airdress-mcp"
+version = "0.1.0"
+description = "Airdress over MCP: query your airdresses and run your functions dev loop from an editor"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# Deliberately short. Every dependency here is one the CLI already has,
+# and nothing in this tree may acquire analytics, crash reporting or a
+# tracing exporter — `deny.toml`'s bans hold that, and a CI test drives
+# the server with an egress allowlist of the mock hub and operator
+# (SPEC-133 FR-112).
+[dependencies]
+airdress = { version = "0.1.0", path = "../.." }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "time", "signal"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"
+base64 = "0.22"
+ed25519-dalek = "2.1"

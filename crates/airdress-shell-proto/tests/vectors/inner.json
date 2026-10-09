@@ -1,0 +1,258 @@
+{
+  "cases": [
+    {
+      "bytes": "010000001400000000000004001b5b316d68691b5b306d0d0a",
+      "message": {
+        "data": "G1sxbWhpG1swbQ0K",
+        "offset": 1024,
+        "type": "out"
+      }
+    },
+    {
+      "bytes": "02000000150000000000001000005000181b5b481b5b324a2420",
+      "message": {
+        "cols": 80,
+        "data": "G1tIG1sySiQg",
+        "offset": 4096,
+        "rows": 24,
+        "type": "snapshot"
+      }
+    },
+    {
+      "bytes": "03000000036c730d",
+      "message": {
+        "data": "bHMN",
+        "type": "in"
+      }
+    },
+    {
+      "bytes": "04000000167b227369676e616c223a22696e74657272757074227d",
+      "message": {
+        "signal": "interrupt",
+        "type": "signal"
+      }
+    },
+    {
+      "bytes": "05000000167b22636f6c73223a3132302c22726f7773223a34307d",
+      "message": {
+        "cols": 120,
+        "rows": 40,
+        "type": "resize"
+      }
+    },
+    {
+      "bytes": "060000000f7b226f6666736574223a343039367d",
+      "message": {
+        "offset": 4096,
+        "type": "ack"
+      }
+    },
+    {
+      "bytes": "07000000107b226279746573223a3236323134347d",
+      "message": {
+        "bytes": 262144,
+        "type": "credit"
+      }
+    },
+    {
+      "bytes": "080000001e7b22616374696f6e223a226f70656e222c22616c67223a226e6f6e65227d",
+      "message": {
+        "action": "open",
+        "alg": "none",
+        "type": "presence"
+      }
+    },
+    {
+      "bytes": "08000000317b22616374696f6e223a22617474616368222c22616c67223a2270323536222c22736967223a224d45514349413d3d227d",
+      "message": {
+        "action": "attach",
+        "alg": "p256",
+        "sig": "MEQCIA==",
+        "type": "presence"
+      }
+    },
+    {
+      "bytes": "09000000027b7d",
+      "message": {
+        "type": "take_input"
+      }
+    },
+    {
+      "bytes": "0a000000b37b22726561736f6e223a22496e707574206d6f76656420746f2047616c61787920533233222c22747970697374223a226465766963652d70686f6e65222c2276696577657273223a5b7b22636c69656e74223a226465766963652d636c69222c226c6162656c223a22616972647265737320434c49206f6e206465762d626f78227d2c7b22636c69656e74223a226465766963652d70686f6e65222c226c6162656c223a2247616c61787920533233227d5d7d",
+      "message": {
+        "reason": "Input moved to Galaxy S23",
+        "type": "roles",
+        "typist": "device-phone",
+        "viewers": [
+          {
+            "client": "device-cli",
+            "label": "airdress CLI on dev-box"
+          },
+          {
+            "client": "device-phone",
+            "label": "Galaxy S23"
+          }
+        ]
+      }
+    },
+    {
+      "bytes": "0b000000187b22636f6465223a302c227369676e616c223a6e756c6c7d",
+      "message": {
+        "code": 0,
+        "signal": null,
+        "type": "exit"
+      }
+    },
+    {
+      "bytes": "0c000000117b22696e5f7365636f6e6473223a31307d",
+      "message": {
+        "in_seconds": 10,
+        "type": "host_stopping"
+      }
+    },
+    {
+      "bytes": "0d0000002d7b22626f6479223a7b226b696e64223a227374617465222c227374617465223a226e656564735f796f75227d7d",
+      "message": {
+        "body": {
+          "kind": "state",
+          "state": "needs_you"
+        },
+        "type": "structured"
+      }
+    },
+    {
+      "bytes": "0e000000027b7d",
+      "message": {
+        "type": "recording_list"
+      }
+    },
+    {
+      "bytes": "10000000457b2266726f6d5f6368756e6b223a302c227265636f7264696e67223a2230314a395a334b3751385232543556365738583959305a413142222c227365676d656e74223a307d",
+      "message": {
+        "from_chunk": 0,
+        "recording": "01J9Z3K7Q8R2T5V6W8X9Y0ZA1B",
+        "segment": 0,
+        "type": "recording_fetch"
+      }
+    },
+    {
+      "bytes": "120000001100000000000000000000000200000001ff",
+      "message": {
+        "index": 2,
+        "sealed": "AAAAAf8=",
+        "segment": 0,
+        "type": "recording_chunk"
+      }
+    },
+    {
+      "bytes": "140000001e7b2272657175657374223a747275652c227377697463685f6174223a377d",
+      "message": {
+        "request": true,
+        "switch_at": 7,
+        "type": "rekey"
+      }
+    },
+    {
+      "bytes": "15000000507b22636f6465223a227368656c6c5f696e7075745f6e6f745f68656c64222c226d657373616765223a22496e707574206973206f6e206a6566652d6c6170746f702e2054616b6520696e7075743f227d",
+      "message": {
+        "code": "shell_input_not_held",
+        "message": "Input is on jefe-laptop. Take input?",
+        "type": "error"
+      }
+    }
+  ],
+  "description": "Inner messages: type (u8) ‖ length (u32 BE) ‖ body; binary bodies for out, snapshot, in and recording_chunk, JSON for the rest.",
+  "malformed": [
+    "ee000000027b7d",
+    "0100000009",
+    "010000",
+    "06000000027b7d",
+    "06000000187b2274797065223a22696e222c226f6666736574223a317d"
+  ],
+  "types": [
+    [
+      1,
+      "out"
+    ],
+    [
+      2,
+      "snapshot"
+    ],
+    [
+      3,
+      "in"
+    ],
+    [
+      4,
+      "signal"
+    ],
+    [
+      5,
+      "resize"
+    ],
+    [
+      6,
+      "ack"
+    ],
+    [
+      7,
+      "credit"
+    ],
+    [
+      8,
+      "presence"
+    ],
+    [
+      9,
+      "take_input"
+    ],
+    [
+      10,
+      "roles"
+    ],
+    [
+      11,
+      "exit"
+    ],
+    [
+      12,
+      "host_stopping"
+    ],
+    [
+      13,
+      "structured"
+    ],
+    [
+      14,
+      "recording_list"
+    ],
+    [
+      15,
+      "recording_listing"
+    ],
+    [
+      16,
+      "recording_fetch"
+    ],
+    [
+      17,
+      "recording_header"
+    ],
+    [
+      18,
+      "recording_chunk"
+    ],
+    [
+      19,
+      "recording_rewrap"
+    ],
+    [
+      20,
+      "rekey"
+    ],
+    [
+      21,
+      "error"
+    ]
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "dictionaryDefinitions": [
+    {
+      "name": "project-words",
+      "path": "./.cspell/project-words.txt",
+      "addWords": true
+    }
+  ],
+  "dictionaries": [
+    "project-words"
+  ],
+  "words": [],
+  "flagWords": [],
+  "ignorePaths": [
+    ".git/",
+    ".cspell/**",
+    ".claude/**",
+    "target/",
+    "Cargo.lock",
+    "THIRD-PARTY.md",
+    "tests/fixtures/agent_bus_vectors.json"
+  ],
+  "ignoreRegExpList": [
+    "/[A-Za-z0-9+/]{16,}={0,2}/",
+    "/\\b[A-Fa-f0-9]{16,}\\b/"
+  ]
+}

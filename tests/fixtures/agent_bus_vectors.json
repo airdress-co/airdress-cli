@@ -1,0 +1,224 @@
+{
+  "jcs": [
+    {
+      "name": "sorted_keys_and_nesting",
+      "input": {
+        "b": [
+          3,
+          {
+            "z": true,
+            "a": null
+          }
+        ],
+        "a": "x",
+        "c": {
+          "y": 1,
+          "x": 2
+        }
+      },
+      "canonical": "{\"a\":\"x\",\"b\":[3,{\"a\":null,\"z\":true}],\"c\":{\"x\":2,\"y\":1}}"
+    },
+    {
+      "name": "numbers",
+      "input": [
+        0,
+        -0.0,
+        1.0,
+        1.5,
+        -2.25,
+        0.1,
+        1e+20,
+        1e+21,
+        1e-06,
+        1e-07,
+        123456789.0,
+        4.5e+300,
+        9007199254740993
+      ],
+      "canonical": "[0,0,1,1.5,-2.25,0.1,100000000000000000000,1e+21,0.000001,1e-7,123456789,4.5e+300,9007199254740993]"
+    },
+    {
+      "name": "strings_escape",
+      "input": {
+        "s": "quote\" back\\ nl\n tab\t ctl\u001f uni é € emoji 😀"
+      },
+      "canonical": "{\"s\":\"quote\\\" back\\\\ nl\\n tab\\t ctl\\u001f uni é € emoji 😀\"}"
+    },
+    {
+      "name": "utf16_key_order",
+      "input": {
+        "€": 1,
+        "😀": 2,
+        "דּ": 3,
+        "a": 4,
+        "é": 5
+      },
+      "canonical": "{\"a\":4,\"é\":5,\"€\":1,\"😀\":2,\"דּ\":3}"
+    }
+  ],
+  "signature": {
+    "seed_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+    "public_key_b64url": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
+    "key_id": "ed25519:NHUPmL1Z_PyUbaRaqr6TO-FUpLUJThxKv0KGZQXzyX4",
+    "body": {
+      "content": "Migration is merged; the API work can start.",
+      "data": {
+        "task": "api-v2",
+        "after": "migrate-db"
+      },
+      "data_schema": "airdress.task.v1",
+      "fence": {
+        "claim": "migrate-db",
+        "token": 7
+      }
+    },
+    "body_jcs": "{\"content\":\"Migration is merged; the API work can start.\",\"data\":{\"after\":\"migrate-db\",\"task\":\"api-v2\"},\"data_schema\":\"airdress.task.v1\",\"fence\":{\"claim\":\"migrate-db\",\"token\":7}}",
+    "body_sha256": "a8600b277ff640ee067b84c95e0e8a6a4064090a143056705bcf9e19c823d4a0",
+    "signed": {
+      "airdress": "alice.a.airdr.es",
+      "signed_by": "device",
+      "session": "0199a3d0-0000-7000-8000-000000000001",
+      "enrollment": "0199a1aa-0000-7000-8000-000000000002",
+      "op": "message.post",
+      "target": "topic:general",
+      "body": "a8600b277ff640ee067b84c95e0e8a6a4064090a143056705bcf9e19c823d4a0",
+      "nonce": "AAECAwQFBgcICQoLDA0ODw",
+      "time": "2026-10-03T09:12:44.050Z"
+    },
+    "signing_input_b64url": "YWlyZHJlc3MuYWdlbnRfYnVzLndyaXRlLnYxH3siYWlyZHJlc3MiOiJhbGljZS5hLmFpcmRyLmVzIiwiYm9keSI6ImE4NjAwYjI3N2ZmNjQwZWUwNjdiODRjOTVlMGU4YTZhNDA2NDA5MGExNDMwNTY3MDViY2Y5ZTE5YzgyM2Q0YTAiLCJlbnJvbGxtZW50IjoiMDE5OWExYWEtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwibm9uY2UiOiJBQUVDQXdRRkJnY0lDUW9MREEwT0R3Iiwib3AiOiJtZXNzYWdlLnBvc3QiLCJzZXNzaW9uIjoiMDE5OWEzZDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2lnbmVkX2J5IjoiZGV2aWNlIiwidGFyZ2V0IjoidG9waWM6Z2VuZXJhbCIsInRpbWUiOiIyMDI2LTEwLTAzVDA5OjEyOjQ0LjA1MFoifQ",
+    "signature_b64url": "YrK7CrmW8aabsxagYQdiY-_HWLa_DKM9VvSmZmxZkM6QOSgJD5DsHlGqLnL5UUC9u3G7cR-z3cKJxo676CN8DQ"
+  },
+  "acks": [
+    {
+      "name": "delivered",
+      "message_id": "0199a3d0-0000-7000-8000-0000000000aa",
+      "body": {
+        "state": "delivered"
+      },
+      "body_jcs": "{\"state\":\"delivered\"}",
+      "body_sha256": "b97e9d79b8ee6e1758ea8a0da64016265e0e9de4e4f5a83da4cf3991954f0224",
+      "signed": {
+        "airdress": "alice.a.airdr.es",
+        "signed_by": "device",
+        "session": "0199a3d0-0000-7000-8000-000000000001",
+        "enrollment": "0199a1aa-0000-7000-8000-000000000002",
+        "op": "ack",
+        "target": "0199a3d0-0000-7000-8000-0000000000aa",
+        "body": "b97e9d79b8ee6e1758ea8a0da64016265e0e9de4e4f5a83da4cf3991954f0224",
+        "nonce": "AAECAwQFBgcICQoLDA0OEA",
+        "time": "2026-10-05T02:46:32.575Z"
+      },
+      "signing_input_b64url": "YWlyZHJlc3MuYWdlbnRfYnVzLndyaXRlLnYxH3siYWlyZHJlc3MiOiJhbGljZS5hLmFpcmRyLmVzIiwiYm9keSI6ImI5N2U5ZDc5YjhlZTZlMTc1OGVhOGEwZGE2NDAxNjI2NWUwZTlkZTRlNGY1YTgzZGE0Y2YzOTkxOTU0ZjAyMjQiLCJlbnJvbGxtZW50IjoiMDE5OWExYWEtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwibm9uY2UiOiJBQUVDQXdRRkJnY0lDUW9MREEwT0VBIiwib3AiOiJhY2siLCJzZXNzaW9uIjoiMDE5OWEzZDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2lnbmVkX2J5IjoiZGV2aWNlIiwidGFyZ2V0IjoiMDE5OWEzZDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMGFhIiwidGltZSI6IjIwMjYtMTAtMDVUMDI6NDY6MzIuNTc1WiJ9",
+      "signature_b64url": "hn2aBVGDCGUKGhMkjHo4hhNKoFXqm-4-TMnlCn6Hp2EMEgGzllBYddHl5qXBqJ2oA2hfx4Cg9zdgv0Pr7l4uBQ",
+      "request_attestation": {
+        "signed_by": "device",
+        "session": "0199a3d0-0000-7000-8000-000000000001",
+        "enrollment": "0199a1aa-0000-7000-8000-000000000002",
+        "key_id": "ed25519:NHUPmL1Z_PyUbaRaqr6TO-FUpLUJThxKv0KGZQXzyX4",
+        "nonce": "AAECAwQFBgcICQoLDA0OEA",
+        "time": "2026-10-05T02:46:32.575Z",
+        "sig": "hn2aBVGDCGUKGhMkjHo4hhNKoFXqm-4-TMnlCn6Hp2EMEgGzllBYddHl5qXBqJ2oA2hfx4Cg9zdgv0Pr7l4uBQ"
+      },
+      "stored_attestation": {
+        "signed_by": "device",
+        "session": "0199a3d0-0000-7000-8000-000000000001",
+        "enrollment": "0199a1aa-0000-7000-8000-000000000002",
+        "op": "ack",
+        "target": "0199a3d0-0000-7000-8000-0000000000aa",
+        "body": "b97e9d79b8ee6e1758ea8a0da64016265e0e9de4e4f5a83da4cf3991954f0224",
+        "nonce": "AAECAwQFBgcICQoLDA0OEA",
+        "time": "2026-10-05T02:46:32.575Z",
+        "key_id": "ed25519:NHUPmL1Z_PyUbaRaqr6TO-FUpLUJThxKv0KGZQXzyX4",
+        "sig": "hn2aBVGDCGUKGhMkjHo4hhNKoFXqm-4-TMnlCn6Hp2EMEgGzllBYddHl5qXBqJ2oA2hfx4Cg9zdgv0Pr7l4uBQ"
+      }
+    },
+    {
+      "name": "delivered_by_a_sibling_session",
+      "message_id": "0199a3d0-0000-7000-8000-0000000000aa",
+      "body": {
+        "state": "delivered"
+      },
+      "body_jcs": "{\"state\":\"delivered\"}",
+      "body_sha256": "b97e9d79b8ee6e1758ea8a0da64016265e0e9de4e4f5a83da4cf3991954f0224",
+      "signed": {
+        "airdress": "alice.a.airdr.es",
+        "signed_by": "device",
+        "session": "0199a3d0-0000-7000-8000-000000000003",
+        "enrollment": "0199a1aa-0000-7000-8000-000000000002",
+        "op": "ack",
+        "target": "0199a3d0-0000-7000-8000-0000000000aa",
+        "body": "b97e9d79b8ee6e1758ea8a0da64016265e0e9de4e4f5a83da4cf3991954f0224",
+        "nonce": "AAECAwQFBgcICQoLDA0OEQ",
+        "time": "2026-10-05T02:46:32.585Z"
+      },
+      "signing_input_b64url": "YWlyZHJlc3MuYWdlbnRfYnVzLndyaXRlLnYxH3siYWlyZHJlc3MiOiJhbGljZS5hLmFpcmRyLmVzIiwiYm9keSI6ImI5N2U5ZDc5YjhlZTZlMTc1OGVhOGEwZGE2NDAxNjI2NWUwZTlkZTRlNGY1YTgzZGE0Y2YzOTkxOTU0ZjAyMjQiLCJlbnJvbGxtZW50IjoiMDE5OWExYWEtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwibm9uY2UiOiJBQUVDQXdRRkJnY0lDUW9MREEwT0VRIiwib3AiOiJhY2siLCJzZXNzaW9uIjoiMDE5OWEzZDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAzIiwic2lnbmVkX2J5IjoiZGV2aWNlIiwidGFyZ2V0IjoiMDE5OWEzZDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMGFhIiwidGltZSI6IjIwMjYtMTAtMDVUMDI6NDY6MzIuNTg1WiJ9",
+      "signature_b64url": "vpjM2rhhBJHkBecmT-QAnUcKnYuZyOp_nzz2zY7RiF_EDY6W4t5hTtzK0EJ9pzFJzEkkrtKk8BfTewvcYc3nCQ",
+      "request_attestation": {
+        "signed_by": "device",
+        "session": "0199a3d0-0000-7000-8000-000000000003",
+        "enrollment": "0199a1aa-0000-7000-8000-000000000002",
+        "key_id": "ed25519:NHUPmL1Z_PyUbaRaqr6TO-FUpLUJThxKv0KGZQXzyX4",
+        "nonce": "AAECAwQFBgcICQoLDA0OEQ",
+        "time": "2026-10-05T02:46:32.585Z",
+        "sig": "vpjM2rhhBJHkBecmT-QAnUcKnYuZyOp_nzz2zY7RiF_EDY6W4t5hTtzK0EJ9pzFJzEkkrtKk8BfTewvcYc3nCQ"
+      },
+      "stored_attestation": {
+        "signed_by": "device",
+        "session": "0199a3d0-0000-7000-8000-000000000003",
+        "enrollment": "0199a1aa-0000-7000-8000-000000000002",
+        "op": "ack",
+        "target": "0199a3d0-0000-7000-8000-0000000000aa",
+        "body": "b97e9d79b8ee6e1758ea8a0da64016265e0e9de4e4f5a83da4cf3991954f0224",
+        "nonce": "AAECAwQFBgcICQoLDA0OEQ",
+        "time": "2026-10-05T02:46:32.585Z",
+        "key_id": "ed25519:NHUPmL1Z_PyUbaRaqr6TO-FUpLUJThxKv0KGZQXzyX4",
+        "sig": "vpjM2rhhBJHkBecmT-QAnUcKnYuZyOp_nzz2zY7RiF_EDY6W4t5hTtzK0EJ9pzFJzEkkrtKk8BfTewvcYc3nCQ"
+      }
+    },
+    {
+      "name": "handled_with_note",
+      "message_id": "0199a3d0-0000-7000-8000-0000000000aa",
+      "body": {
+        "state": "handled",
+        "note": "Merged — thanks"
+      },
+      "body_jcs": "{\"note\":\"Merged — thanks\",\"state\":\"handled\"}",
+      "body_sha256": "390a5182c706e97af89fb100e3abfcf257f1ffcba66b18cab73bbac62dff6eb7",
+      "signed": {
+        "airdress": "alice.a.airdr.es",
+        "signed_by": "device",
+        "session": "0199a3d0-0000-7000-8000-000000000001",
+        "enrollment": "0199a1aa-0000-7000-8000-000000000002",
+        "op": "ack",
+        "target": "0199a3d0-0000-7000-8000-0000000000aa",
+        "body": "390a5182c706e97af89fb100e3abfcf257f1ffcba66b18cab73bbac62dff6eb7",
+        "nonce": "AAECAwQFBgcICQoLDA0OEg",
+        "time": "2026-10-05T02:47:01.000Z"
+      },
+      "signing_input_b64url": "YWlyZHJlc3MuYWdlbnRfYnVzLndyaXRlLnYxH3siYWlyZHJlc3MiOiJhbGljZS5hLmFpcmRyLmVzIiwiYm9keSI6IjM5MGE1MTgyYzcwNmU5N2FmODlmYjEwMGUzYWJmY2YyNTdmMWZmY2JhNjZiMThjYWI3M2JiYWM2MmRmZjZlYjciLCJlbnJvbGxtZW50IjoiMDE5OWExYWEtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwibm9uY2UiOiJBQUVDQXdRRkJnY0lDUW9MREEwT0VnIiwib3AiOiJhY2siLCJzZXNzaW9uIjoiMDE5OWEzZDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2lnbmVkX2J5IjoiZGV2aWNlIiwidGFyZ2V0IjoiMDE5OWEzZDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMGFhIiwidGltZSI6IjIwMjYtMTAtMDVUMDI6NDc6MDEuMDAwWiJ9",
+      "signature_b64url": "FiE-w386LqyU4BjFhCd0bnjbvSLNxZN5aG7c_VwQNkr6-H_9ErjfWKn_qTvhKPlrV9NM4E2vZUYK4wqGPHcaDw",
+      "request_attestation": {
+        "signed_by": "device",
+        "session": "0199a3d0-0000-7000-8000-000000000001",
+        "enrollment": "0199a1aa-0000-7000-8000-000000000002",
+        "key_id": "ed25519:NHUPmL1Z_PyUbaRaqr6TO-FUpLUJThxKv0KGZQXzyX4",
+        "nonce": "AAECAwQFBgcICQoLDA0OEg",
+        "time": "2026-10-05T02:47:01.000Z",
+        "sig": "FiE-w386LqyU4BjFhCd0bnjbvSLNxZN5aG7c_VwQNkr6-H_9ErjfWKn_qTvhKPlrV9NM4E2vZUYK4wqGPHcaDw"
+      },
+      "stored_attestation": {
+        "signed_by": "device",
+        "session": "0199a3d0-0000-7000-8000-000000000001",
+        "enrollment": "0199a1aa-0000-7000-8000-000000000002",
+        "op": "ack",
+        "target": "0199a3d0-0000-7000-8000-0000000000aa",
+        "body": "390a5182c706e97af89fb100e3abfcf257f1ffcba66b18cab73bbac62dff6eb7",
+        "nonce": "AAECAwQFBgcICQoLDA0OEg",
+        "time": "2026-10-05T02:47:01.000Z",
+        "key_id": "ed25519:NHUPmL1Z_PyUbaRaqr6TO-FUpLUJThxKv0KGZQXzyX4",
+        "sig": "FiE-w386LqyU4BjFhCd0bnjbvSLNxZN5aG7c_VwQNkr6-H_9ErjfWKn_qTvhKPlrV9NM4E2vZUYK4wqGPHcaDw"
+      }
+    }
+  ],
+  "acks_note": "Delivery and handled acks as both sides sign and check them: the client signs op 'ack' with the message id as the target over the ack body; the operator stores the attestation without 'airdress' and hands it to peers as 'stored_attestation'. Seed and key as in 'signature'."
+}

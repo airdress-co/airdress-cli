@@ -1,0 +1,64 @@
+# Fuzz targets for the shell protocol's wire parsers (rust guide R-TST-3).
+#
+# Its own workspace, and excluded from the repository's, so `--locked`
+# workspace builds never see libfuzzer-sys and this lockfile moves on its own.
+# Run with a nightly toolchain:
+#
+#   cargo +nightly fuzz run <target> -- -max_total_time=60
+#
+# Seed corpora come from the committed conformance vectors: run
+# `python3 seed-corpus.py` here first.
+[package]
+name = "airdress-shell-proto-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+airdress-shell-proto = { path = ".." }
+rand_core = "=0.6.4"
+serde = "1"
+serde_json = "1"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "inner"
+path = "fuzz_targets/inner.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "record"
+path = "fuzz_targets/record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "handshake"
+path = "fuzz_targets/handshake.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "structured"
+path = "fuzz_targets/structured.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "recording"
+path = "fuzz_targets/recording.rs"
+test = false
+doc = false
+bench = false

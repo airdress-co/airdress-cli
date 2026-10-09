@@ -1,0 +1,83 @@
+[package]
+name = "airdress-shell-proto"
+version = "0.1.0"
+description = "End-to-end protocol for Airdress shells: handshake, records, inner messages, presence and recording encryption"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# rlib for the host and the CLI; cdylib is the Android `.so` the app loads
+# through the C ABI in `src/ffi.rs`.
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+# The in-process reference host, the conversation driver and the fault
+# model. Off in shipped builds; the tests and the vector generator turn it on.
+conformance = []
+
+# Every version is pinned exactly: a protocol crate whose bytes three
+# languages must agree on does not take a minor bump silently.
+[dependencies]
+snow = { version = "=0.10.0", default-features = false, features = [
+    "use-chacha20poly1305",
+    "use-blake2",
+    "use-curve25519",
+    "risky-raw-split",
+] }
+chacha20poly1305 = { version = "=0.10.1", default-features = false, features = ["alloc"] }
+hkdf = "=0.12.4"
+sha2 = { version = "=0.10.9", default-features = false }
+hpke = { version = "=0.12.0", default-features = false, features = ["alloc", "x25519"] }
+x25519-dalek = { version = "=2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["alloc", "zeroize"] }
+p256 = { version = "=0.13.2", default-features = false, features = ["ecdsa", "alloc"] }
+rand_core = { version = "=0.6.4", default-features = false }
+zeroize = { version = "=1.8.2", features = ["zeroize_derive"] }
+serde = { version = "1", features = ["derive"] }
+# `float_roundtrip`: a structured body is arbitrary JSON a host decodes and
+# re-encodes on its way to a client, and the default parser can land a
+# number one ulp away from the one it printed (found by the `inner` fuzz
+# target: 133333333300000000324448120 printed as 1.333333333e26 and read back as
+# 1.3333333330000001e26).
+serde_json = { version = "1", features = ["float_roundtrip"] }
+base64 = "0.22"
+
+# The C ABI draws its randomness from the OS; the core API takes an RNG
+# from its caller, so the wasm build needs no entropy source of its own.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rand_core = { version = "=0.6.4", features = ["getrandom"] }
+
+# snow and hpke enable their AEAD crates' default features, which reach
+# getrandom 0.2. The crate itself never draws from it (every RNG is passed
+# in), but on wasm32-unknown-unknown getrandom refuses to compile without a
+# backend, so it is given the JavaScript one.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "=0.2.17", features = ["js"] }
+
+[dev-dependencies]
+proptest = "1"
+
+[[test]]
+name = "vectors"
+required-features = ["conformance"]
+
+[[test]]
+name = "conversation"
+required-features = ["conformance"]
+
+[[test]]
+name = "fault_injection"
+required-features = ["conformance"]
+
+[[test]]
+name = "structured_schema"
+required-features = ["conformance"]
+
+[[test]]
+name = "netem"
+required-features = ["conformance"]

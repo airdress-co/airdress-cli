@@ -1,0 +1,26 @@
+[package]
+name = "airdress-shell-mock-host"
+version = "0.1.0"
+description = "The protocol crate's reference host over a C ABI, for client test suites in other languages. Never shipped."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+# A cdylib a Dart or Node test loads with `DynamicLibrary.open`. It wraps
+# the reference host from `airdress-shell-proto`'s conformance kit, so a
+# client in another language can run the conversation suite against the
+# same host the Rust suite uses, with no operator and no network.
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+airdress-shell-proto = { version = "0.1.0", path = "../airdress-shell-proto", features = ["conformance"] }
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["alloc", "zeroize"] }
+p256 = { version = "=0.13.2", default-features = false, features = ["ecdsa", "alloc"] }
+rand_core = { version = "=0.6.4", features = ["getrandom"] }
+serde_json = "1"
+base64 = "0.22"

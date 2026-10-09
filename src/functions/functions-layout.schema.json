@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://airdress.co/schemas/airdress.functions.yaml",
+  "title": "airdress.functions.yaml",
+  "description": "Which directories of a repository are functions, the Function manifest each deploys with, and the operator it deploys to. Read by `airdress fn deploy`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["layout", "functions"],
+  "properties": {
+    "layout": {
+      "description": "The version of this file's format.",
+      "const": 1
+    },
+    "operator": {
+      "description": "The operator every entry deploys to unless it names its own: an FQDN or an https URL.",
+      "type": "string",
+      "minLength": 1
+    },
+    "functions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "description": "The function directory (function.json and src/), relative to the repository root.",
+            "type": "string",
+            "minLength": 1
+          },
+          "manifest": {
+            "description": "The Function manifest, relative to the repository root. Defaults to function.yaml in the directory.",
+            "type": "string",
+            "minLength": 1
+          },
+          "operator": {
+            "description": "The operator this entry deploys to. Each (manifest, operator) pair appears once.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

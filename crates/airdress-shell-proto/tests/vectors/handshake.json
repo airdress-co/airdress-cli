@@ -1,0 +1,195 @@
+{
+  "cases": [
+    {
+      "deviceEphemeralSecret": "5bc653c287ad02af89e558f53e97217a43551075b429c1bc942d2ace824e8490",
+      "deviceHello": {
+        "clientVersion": "1.0.0",
+        "cols": 80,
+        "device": "device-phone",
+        "rows": 24
+      },
+      "deviceStaticSecret": "94b09aaad98fde672dc617ea76592f4ec6135a49d56e0bb318db4310f9b9802e",
+      "handshakeHash": "e8f0af18e1c514a81bdc1c6ce2f50e4a152b9f664b8b47b00f1ee364c828c059",
+      "hostEphemeralSecret": "1e694568b346e682726176722991bef173304a8c5bf903ff0928f34962181488",
+      "hostHello": {
+        "hostVersion": "0.1.0",
+        "profileHash": "sha256:6d1f",
+        "resumeTicket": ""
+      },
+      "hostStaticSecret": "f1c264102828555a13c5f13c5a77585349846d7b59d0944d7f517c1cb572a184",
+      "msg1": "f0aab8ec86b86b2065df86f523e64cb8b89f842cd778f68043a6ade013e82960cd77f73d2cc370111dc296f91f5a6bf6232cfb86489996b0f55b86ac39b5cea90903f9ccc2cc1c1cdb473be1cec533d130be0b9d12a3a8ca5a396cf12662eb50cbfa618440329bca2d303ec25e24d3780bb2b132fd0cfeba740f66c1f4673d696fa27ab050bbe00136397d31f85d6e9f2f138de2a3a48453e2b49fd4261166c2196c6376bb",
+      "msg2": "62a1a49d664672e006edc7902d380ebd88b0ae192a273553c7a28211c61011310ceeb7dc8752ad348ec4bcc495c75c4193fbc9f2cf573d250a35e8690623ee70647934b963d26f559bba69914b72a27702d891a98dfd5f78e01de13402f88707f8d11cbb01ee5b1a802260bb7e6fe527c026eddce65499394a1feabe660616b7eaf0012329b0b66f006971accd",
+      "name": "open: IK, then the presence record, input and output",
+      "pattern": "IK",
+      "prologue": {
+        "action": "open",
+        "airdress": "0192b7c4-5e1a-7d3f-9a42-6c1e8b2f4d01",
+        "machineId": "6f0c2a91-3b7d-4e58-a1c9-2d8e7f4b6a13",
+        "profileId": "api",
+        "sessionId": "01J9Z3K7Q8R2T5V6W8X9Y0ZA1B"
+      },
+      "prologueBytes": "61697264726573732e7368656c6c2e6532652e76310030313932623763342d356531612d376433662d396134322d3663316538623266346430311f36663063326139312d336237642d346535382d613163392d3264386537663462366131331f30314a395a334b3751385232543556365738583959305a4131421f6170691f6f70656e",
+      "records": [
+        {
+          "from": "device",
+          "plaintext": "080000001e7b22616374696f6e223a226f70656e222c22616c67223a226e6f6e65227d",
+          "record": "00000000000000001b3ff98e51000d0830031a2bc66772676476eab0ff499ee314ed43175b19d40f54b095e7dafecc17e44faef23ae19bc5a417fb"
+        },
+        {
+          "from": "device",
+          "plaintext": "03000000036c730d",
+          "record": "000000000000000121e58682eec82ef00c1ca45ac827e19366cfe710e98d9539"
+        },
+        {
+          "from": "host",
+          "plaintext": "01000000130000000000000000524541444d452e6d640d0a",
+          "record": "000000000000000076e1c284ec3c80d6eca48a48369e239385ce48ecb8f5b4f68b0917fa6362d68481e7c369a9312fa9"
+        }
+      ],
+      "resumeSecret": "5b0638be8e7ec624dd3d248044f17cb4abccd9b4d266e48aceab1f6522a3096d",
+      "ticketId": "399d63e2147348b4ad88d09f0902aec6"
+    },
+    {
+      "deviceEphemeralSecret": "84e1dbac21753d43313732975d41bf70db39ba8bfa359c47ed0f6b2bf92fe569",
+      "deviceHello": {
+        "clientVersion": "1.0.0",
+        "cols": 80,
+        "device": "device-phone",
+        "rows": 24
+      },
+      "deviceStaticSecret": "94b09aaad98fde672dc617ea76592f4ec6135a49d56e0bb318db4310f9b9802e",
+      "handshakeHash": "3e2cd1126320fde9dc6dd60f31afa0e9802e0cb9ff05f42d28682605a8cee981",
+      "hostEphemeralSecret": "fbc49c81da60e12482fd0f1eaeca7bd9bdf1484738b4b7543500108cf79634cd",
+      "hostHello": {
+        "hostVersion": "0.1.0",
+        "profileHash": "sha256:6d1f",
+        "resumeTicket": ""
+      },
+      "hostStaticSecret": "f1c264102828555a13c5f13c5a77585349846d7b59d0944d7f517c1cb572a184",
+      "msg1": "5913236c04e10815d9aae8dda31b52129f22aea20cbaa103552cb25cc6239a55b47e3d7e102a17085d73e6fbab93e048347b57e36455f8a7bc031b4f9d0e1180faaaff0ba5085b1104d8431de2cf9e150569cbfa059535a7c0d94b42757881ee109340422c9f87e31b2068c8e80a800a6250ecb0558a648fba1f5addab4233ec779a421d5278fe0b8f40ec63cc818fb8d7b82bcf6ff4aa996ac845c48eb3d3a4d31266dc89",
+      "msg2": "7ee6d573bbf0061a0543f0e8161e7a380237b03a95494b894cb988cfad32ea566441a14ce9ae78e8d979d3e342dbce006774ebe1a7a33b518475060812e0af943c3b50a34b7a8479108de37ec925f8b027b97de22796c13f4d172aabfa85d472a092a0892f441f9b1a5cadec19771228922d76c47c5773ce84e4f7b133798b197e48e34be4bd8c97dd40b8f5cf",
+      "name": "attach: IK with the attach action",
+      "pattern": "IK",
+      "prologue": {
+        "action": "attach",
+        "airdress": "0192b7c4-5e1a-7d3f-9a42-6c1e8b2f4d01",
+        "machineId": "6f0c2a91-3b7d-4e58-a1c9-2d8e7f4b6a13",
+        "profileId": "api",
+        "sessionId": "01J9Z3K7Q8R2T5V6W8X9Y0ZA1B"
+      },
+      "prologueBytes": "61697264726573732e7368656c6c2e6532652e76310030313932623763342d356531612d376433662d396134322d3663316538623266346430311f36663063326139312d336237642d346535382d613163392d3264386537663462366131331f30314a395a334b3751385232543556365738583959305a4131421f6170691f617474616368",
+      "records": [
+        {
+          "from": "host",
+          "plaintext": "01000000130000000000000000524541444d452e6d640d0a",
+          "record": "0000000000000000c2caca8b2eb97806b050839203b29ad8de341edc8ae62a3129996cc91f016f2bf171e3348cefdf17"
+        }
+      ],
+      "resumeSecret": "5b7bea9d9e64a2e1d0e9958afaf01e174ce6dedb76275cf180eb57e2e03cbd1b",
+      "ticketId": "ae45461f9d82b56d7038600bdf487c86"
+    },
+    {
+      "deviceEphemeralSecret": "e873bb6e511f7ed8ff64abd886bfaa30096c7b2c06a525891d534b87d4015d34",
+      "deviceHello": {
+        "device": "device-phone"
+      },
+      "deviceStaticSecret": "94b09aaad98fde672dc617ea76592f4ec6135a49d56e0bb318db4310f9b9802e",
+      "handshakeHash": "27de13b9d74052b77c7f52ee79091ed6e952009b70bd76f13ed1c8240bc0925a",
+      "hostEphemeralSecret": "e1e75b98ecd01f80273279258a33a384434e733cb4d77ed5a515190615c9b627",
+      "hostHello": {
+        "resumeTicket": ""
+      },
+      "hostStaticSecret": "f1c264102828555a13c5f13c5a77585349846d7b59d0944d7f517c1cb572a184",
+      "msg1": "aab8b0ad48137b7801db7864a1f47e1903463cd30a378586c5b6fcc2ad21f13299d6826af62e788a10c055f11487ea56ba94b49d8e0d6cc93985126387f16c846281a26a6ef4ba4634c1466f23e34a4f0a032ede3af6bf78551d62db91d40a94890959af3c700901774e51fb9ffb9dad62497a28d235830fdd",
+      "msg2": "332d18d9a3cf383e65324fcd40f8e1967b4a9af24c21e6dcdf425ad349405355906ec545a3c820b3abdc6c24d15663e5b5974b7109cd7c7e518902883dca66da173e8cca448c0fb4ecdf0e18f2ed784da0749a6890f2c3c590070a",
+      "name": "resume: IKpsk2 under the open's resume secret",
+      "pattern": "IKpsk2",
+      "prologue": {
+        "action": "resume",
+        "airdress": "0192b7c4-5e1a-7d3f-9a42-6c1e8b2f4d01",
+        "machineId": "6f0c2a91-3b7d-4e58-a1c9-2d8e7f4b6a13",
+        "profileId": "api",
+        "sessionId": "01J9Z3K7Q8R2T5V6W8X9Y0ZA1B"
+      },
+      "prologueBytes": "61697264726573732e7368656c6c2e6532652e76310030313932623763342d356531612d376433662d396134322d3663316538623266346430311f36663063326139312d336237642d346535382d613163392d3264386537663462366131331f30314a395a334b3751385232543556365738583959305a4131421f6170691f726573756d65",
+      "psk": "5b0638be8e7ec624dd3d248044f17cb4abccd9b4d266e48aceab1f6522a3096d",
+      "records": [
+        {
+          "from": "device",
+          "plaintext": "060000000d7b226f6666736574223a31317d",
+          "record": "00000000000000006b437ac04e5d3559857dd37901de5cbb8178fa803528d7cb6ec264708def3e475ccc"
+        },
+        {
+          "from": "host",
+          "plaintext": "01000000130000000000000000524541444d452e6d640d0a",
+          "record": "000000000000000063b9b8d11e7944bcb8e008bb977896946ba41507c15bb724e7bc210b6089370c16d010887d4f9d36"
+        }
+      ],
+      "resumeSecret": "abfdf7ede63b4966ff3dffa61a7a885080221f1a55e9c8c81e7d7089845ce41b",
+      "ticketId": "3cee56681f6e54b160b7f4495e2d32f3"
+    }
+  ],
+  "description": "Noise IK (open, attach) and IKpsk2 (resume) with fixed statics, ephemerals and ticket ids; records after each; msg1s the host must refuse.",
+  "refusals": [
+    {
+      "code": "shell_handshake_failed",
+      "expectedDeviceStatic": "0a47629212e2bb47f9c4c7ae6633ca9bd90ca7227b42e2cb77f801f148e79218",
+      "hostEphemeralSecret": "6815ea5e10f29eebc3da5a9021b2a86a2434ddb797f9a58809b7d45311f19650",
+      "hostStaticSecret": "f1c264102828555a13c5f13c5a77585349846d7b59d0944d7f517c1cb572a184",
+      "msg1": "f0aab8ec86b86b2065df86f523e64cb8b89f842cd778f68043a6ade013e82960cd77f73d2cc370111dc296f91f5a6bf6232cfb86489996b0f55b86ac39b5cea90903f9ccc2cc1c1cdb473be1cec533d130be0b9d12a3a8ca5a396cf12662eb50cbfa618440329bca2d303ec25e24d3780bb2b132fd0cfeba740f66c1f4673d696fa27ab050bbe00136397d31f85d6e9f2f138de2a3a48453e2b49fd4261166c2196c6376bb",
+      "name": "an open msg1 presented as an attach",
+      "prologue": {
+        "action": "attach",
+        "airdress": "0192b7c4-5e1a-7d3f-9a42-6c1e8b2f4d01",
+        "machineId": "6f0c2a91-3b7d-4e58-a1c9-2d8e7f4b6a13",
+        "profileId": "api",
+        "sessionId": "01J9Z3K7Q8R2T5V6W8X9Y0ZA1B"
+      }
+    },
+    {
+      "code": "shell_handshake_failed",
+      "expectedDeviceStatic": "5aa88e281168501d862a329c0b2f84c01ee0faa6203b1c57f763b32fb451866f",
+      "hostEphemeralSecret": "6815ea5e10f29eebc3da5a9021b2a86a2434ddb797f9a58809b7d45311f19650",
+      "hostStaticSecret": "f1c264102828555a13c5f13c5a77585349846d7b59d0944d7f517c1cb572a184",
+      "msg1": "f0aab8ec86b86b2065df86f523e64cb8b89f842cd778f68043a6ade013e82960cd77f73d2cc370111dc296f91f5a6bf6232cfb86489996b0f55b86ac39b5cea90903f9ccc2cc1c1cdb473be1cec533d130be0b9d12a3a8ca5a396cf12662eb50cbfa618440329bca2d303ec25e24d3780bb2b132fd0cfeba740f66c1f4673d696fa27ab050bbe00136397d31f85d6e9f2f138de2a3a48453e2b49fd4261166c2196c6376bb",
+      "name": "the operator attests another device key",
+      "prologue": {
+        "action": "open",
+        "airdress": "0192b7c4-5e1a-7d3f-9a42-6c1e8b2f4d01",
+        "machineId": "6f0c2a91-3b7d-4e58-a1c9-2d8e7f4b6a13",
+        "profileId": "api",
+        "sessionId": "01J9Z3K7Q8R2T5V6W8X9Y0ZA1B"
+      }
+    },
+    {
+      "code": "shell_resume_expired",
+      "expectedDeviceStatic": "0a47629212e2bb47f9c4c7ae6633ca9bd90ca7227b42e2cb77f801f148e79218",
+      "hostEphemeralSecret": "6815ea5e10f29eebc3da5a9021b2a86a2434ddb797f9a58809b7d45311f19650",
+      "hostStaticSecret": "f1c264102828555a13c5f13c5a77585349846d7b59d0944d7f517c1cb572a184",
+      "msg1": "aab8b0ad48137b7801db7864a1f47e1903463cd30a378586c5b6fcc2ad21f13299d6826af62e788a10c055f11487ea56ba94b49d8e0d6cc93985126387f16c846281a26a6ef4ba4634c1466f23e34a4f0a032ede3af6bf78551d62db91d40a94890959af3c700901774e51fb9ffb9dad62497a28d235830fdd",
+      "name": "a resume with no live ticket",
+      "prologue": {
+        "action": "resume",
+        "airdress": "0192b7c4-5e1a-7d3f-9a42-6c1e8b2f4d01",
+        "machineId": "6f0c2a91-3b7d-4e58-a1c9-2d8e7f4b6a13",
+        "profileId": "api",
+        "sessionId": "01J9Z3K7Q8R2T5V6W8X9Y0ZA1B"
+      }
+    },
+    {
+      "code": "shell_handshake_failed",
+      "expectedDeviceStatic": "0a47629212e2bb47f9c4c7ae6633ca9bd90ca7227b42e2cb77f801f148e79218",
+      "hostEphemeralSecret": "6815ea5e10f29eebc3da5a9021b2a86a2434ddb797f9a58809b7d45311f19650",
+      "hostStaticSecret": "f1c264102828555a13c5f13c5a77585349846d7b59d0944d7f517c1cb572a184",
+      "msg1": "f0aab8ec86b86b2065df86f523e64cb8b89f842cd778f68043a6ade013e82960cd77f73d2cc370111dc296f91f5a6bf6232cfb86489996b0f55b86ac39b5cea90903f9ccc2cc1c1cdb473be1cec533d130be0b9d12a3a8ca5a396cf12662eb50cbfa618440329bca2d303ec25e24d3780bb2b132fd0cfeba740f66c1f4673d696fa27ab050bbe00136397d31f85d6e9f2f138de2a3a48453e2b49fd4261166c2196c6376bb",
+      "name": "the same session under another profile",
+      "prologue": {
+        "action": "open",
+        "airdress": "0192b7c4-5e1a-7d3f-9a42-6c1e8b2f4d01",
+        "machineId": "6f0c2a91-3b7d-4e58-a1c9-2d8e7f4b6a13",
+        "profileId": "shell",
+        "sessionId": "01J9Z3K7Q8R2T5V6W8X9Y0ZA1B"
+      }
+    }
+  ]
+}

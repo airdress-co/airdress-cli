@@ -1,0 +1,76 @@
+[
+  {"step": "device", "name": "phone", "phone": true, "kind": "phone", "label": "Galaxy S23"},
+  {"step": "device", "name": "cli", "phone": false, "kind": "cli", "label": "airdress CLI on dev-box"},
+  {"step": "device", "name": "rogue", "phone": false, "kind": "phone", "label": "a phone claiming no presence key", "refused": "shell_presence_required"},
+
+  {"step": "open", "client": "phone", "session": "s1", "profile": "api"},
+  {"step": "expect", "what": "spawned", "session": "s1", "is": true},
+  {"step": "expect", "what": "unlocks", "client": "phone", "count": 1},
+  {"step": "expect", "what": "typist", "session": "s1", "is": "phone"},
+  {"step": "expect", "what": "client_sees_typist", "client": "phone", "session": "s1", "is": "phone"},
+
+  {"step": "output", "session": "s1", "text": "$ "},
+  {"step": "input", "client": "phone", "session": "s1", "text": "ls\r"},
+  {"step": "output", "session": "s1", "text": "README.md\r\n$ "},
+  {"step": "expect", "what": "input", "session": "s1", "text": "ls\r"},
+  {"step": "expect", "what": "stream", "client": "phone", "session": "s1"},
+
+  {"step": "drop", "client": "phone", "session": "s1"},
+  {"step": "output", "session": "s1", "text": "written while the phone was away\r\n"},
+  {"step": "advance", "ms": 5000},
+  {"step": "reconnect", "client": "phone", "session": "s1", "profile": "api"},
+  {"step": "expect", "what": "stream", "client": "phone", "session": "s1"},
+  {"step": "expect", "what": "unlocks", "client": "phone", "count": 1},
+
+  {"step": "attach", "client": "cli", "session": "s1", "profile": "api"},
+  {"step": "expect", "what": "unlocks", "client": "cli", "count": 0},
+  {"step": "expect", "what": "stream", "client": "cli", "session": "s1"},
+  {"step": "expect", "what": "client_sees_typist", "client": "cli", "session": "s1", "is": "phone"},
+
+  {"step": "input", "client": "cli", "session": "s1", "text": "rm -rf /tmp/x\r"},
+  {"step": "expect", "what": "error", "client": "cli", "session": "s1", "code": "shell_input_not_held"},
+  {"step": "expect", "what": "input", "session": "s1", "text": "ls\r"},
+
+  {"step": "take_input", "client": "cli", "session": "s1"},
+  {"step": "expect", "what": "typist", "session": "s1", "is": "cli"},
+  {"step": "expect", "what": "client_sees_typist", "client": "phone", "session": "s1", "is": "cli"},
+  {"step": "input", "client": "cli", "session": "s1", "text": "pwd\r"},
+  {"step": "expect", "what": "input", "session": "s1", "text": "ls\rpwd\r"},
+
+  {"step": "drop", "client": "phone", "session": "s1"},
+  {"step": "advance", "ms": 121000},
+  {"step": "output", "session": "s1", "text": "two minutes later\r\n"},
+  {"step": "reconnect", "client": "phone", "session": "s1", "profile": "api"},
+  {"step": "expect", "what": "refused", "client": "phone", "session": "s1", "code": "shell_resume_expired"},
+  {"step": "expect", "what": "unlocks", "client": "phone", "count": 2},
+  {"step": "expect", "what": "stream", "client": "phone", "session": "s1"},
+  {"step": "expect", "what": "tickets", "count": 2},
+
+  {"step": "revoke", "client": "cli"},
+  {"step": "expect", "what": "typist", "session": "s1", "is": null},
+  {"step": "expect", "what": "client_sees_typist", "client": "phone", "session": "s1", "is": null},
+  {"step": "expect", "what": "tickets", "count": 1},
+  {"step": "output", "session": "s1", "text": "after the revocation and its rekey\r\n"},
+  {"step": "expect", "what": "stream", "client": "phone", "session": "s1"},
+
+  {"step": "take_input", "client": "phone", "session": "s1"},
+  {"step": "expect", "what": "typist", "session": "s1", "is": "phone"},
+  {"step": "release_input", "client": "phone", "session": "s1"},
+  {"step": "expect", "what": "typist", "session": "s1", "is": null},
+  {"step": "expect", "what": "client_sees_typist", "client": "phone", "session": "s1", "is": null},
+
+  {"step": "open", "client": "phone", "session": "s2", "profile": "shell"},
+  {"step": "expect", "what": "unlocks", "client": "phone", "count": 3},
+  {"step": "detach", "client": "phone", "session": "s2"},
+  {"step": "reconnect", "client": "phone", "session": "s2", "profile": "shell"},
+  {"step": "expect", "what": "unlocks", "client": "phone", "count": 4},
+  {"step": "output", "session": "s2", "text": "bye\r\n"},
+  {"step": "exit", "session": "s2", "code": 0},
+  {"step": "expect", "what": "exited", "client": "phone", "session": "s2", "code": 0},
+  {"step": "expect", "what": "stream", "client": "phone", "session": "s2"},
+
+  {"step": "stop"},
+  {"step": "expect", "what": "host_stopping", "client": "phone", "session": "s1"},
+  {"step": "expect", "what": "exited", "client": "phone", "session": "s1", "code": null},
+  {"step": "expect", "what": "tickets", "count": 0}
+]

@@ -1,0 +1,86 @@
+[package]
+name = "airdress-shell-host"
+version = "0.1.0"
+description = "The shell host: runs the sessions a person registered on their own machine, end to end to their enrolled devices"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# The host runs on a person's own machine, as that person, while they run
+# it. It holds no privileged code (no setuid, no user switching), starts
+# no helper process that outlives it, and talks to one operator: the one
+# it enrolled with.
+[dependencies]
+airdress-shell-proto = { version = "0.1.0", path = "../airdress-shell-proto" }
+# Machine-signed requests: the operator's own signing crate, the same pin
+# as the CLI, so the signer and the verifier cannot drift apart.
+airdress-httpsig = { version = "0.2.0", git = "https://github.com/airdress-co/airdress-httpsig", tag = "v0.2.0" }
+anyhow = "1"
+base64 = "0.22"
+bytes = "1"
+chacha20poly1305 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+ed25519-dalek = { version = "2.1", features = ["rand_core", "zeroize"] }
+futures-util = "0.3"
+http = "1"
+libc = "0.2"
+rand = "0.8"
+reqwest = { version = "0.12", features = ["rustls-tls", "json", "stream"], default-features = false }
+rustix = { version = "1", features = ["fs", "process", "pty", "termios", "stdio"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+toml = "0.8"
+toml_edit = "0.22"
+tracing = "0.1"
+uuid = { version = "1", features = ["serde", "v4"] }
+vt100 = "0.16"
+webpki-roots = "1"
+zeroize = "1"
+# The test kit: devices, a client and a mock operator for the integration
+# tests. Never in a shipped build.
+p256 = { version = "0.13", features = ["ecdsa"], optional = true }
+axum = { version = "0.8", features = ["ws"], optional = true }
+
+[features]
+default = []
+testkit = ["dep:p256", "dep:axum"]
+
+[dev-dependencies]
+# The client's screen model: a snapshot is checked by replaying it where a
+# phone replays it.
+airdress-term = { version = "0.1.0", path = "../airdress-term" }
+tempfile = "3"
+
+# The integration tests drive a real host against the test kit's mock
+# operator; `cargo test --workspace` skips them (no feature), and CI names
+# each one with `--features testkit`.
+[[test]]
+name = "host_e2e"
+required-features = ["testkit"]
+
+[[test]]
+name = "host_poll"
+required-features = ["testkit"]
+
+[[test]]
+name = "probe_files"
+required-features = ["testkit"]
+
+[[test]]
+name = "structured_e2e"
+required-features = ["testkit"]
+
+# Measures the built `airdress` binary as a host against the mock operator
+# (NFR-3 idle cost, NFR-4 a 50 MiB flood):
+# `cargo run --release -p airdress-shell-host --features testkit --example host_measure -- target/release/airdress`.
+[[example]]
+name = "host_measure"
+required-features = ["testkit"]

@@ -1,0 +1,9 @@
+{
+  // Matches airdress-ops. MD013 is off because reference tables in
+  // CLAUDE.md and the runbooks are more legible at their natural width
+  // than wrapped to 80 columns; MD033/MD041 for the same reason.
+  "default": true,
+  "MD013": false,
+  "MD033": false,
+  "MD041": false
+}

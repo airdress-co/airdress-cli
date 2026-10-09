@@ -1,0 +1,6 @@
+sdk_not_pinned
+sdk_version_unknown
+sdk_version_withdrawn
+sdk_module_unknown
+sdk_module_test_only
+sdk_capability_not_requested

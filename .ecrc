@@ -1,0 +1,6 @@
+{
+  "Exclude": ["^\\.git/", "^target/"],
+  "Disable": {
+    "IndentSize": true
+  }
+}

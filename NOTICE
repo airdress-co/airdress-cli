@@ -1,0 +1,12 @@
+Airdress CLI
+Copyright 2026 Airdress Co.
+
+This product includes software developed at Airdress Co.
+(https://airdress.co).
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+Third-party dependencies and their licences are listed in
+THIRD-PARTY.md, which is generated from the lockfile; `cargo deny check
+licenses` is the gate that keeps the list to licences this project may
+ship.

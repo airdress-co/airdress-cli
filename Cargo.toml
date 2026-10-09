@@ -1,0 +1,323 @@
+[workspace]
+members = [".", "crates/airdress-mcp", "crates/airdress-mcp-catalogue", "crates/airdress-shell-proto", "crates/airdress-term", "crates/airdress-shell-mock-host", "crates/airdress-shell-host"]
+# Fuzz crates are their own workspaces (nightly, libfuzzer-sys, their own
+# lockfile), kept out of this one so `--locked` builds never see them.
+exclude = ["crates/airdress-shell-proto/fuzz"]
+
+# Settings every member inherits (`*.workspace = true`), so a crate cannot
+# drift from the others by omission (rust guide R-WS-1).
+[workspace.package]
+# Edition 2021 on purpose, for now: 2024 makes `std::env::set_var` unsafe,
+# and the tests that call it are being reworked separately.
+edition = "2021"
+# The MSRV, and the only place it is written (R-API-7). 1.92 because
+# airdress-httpsig and airdress-mls declare it; rust-toolchain.toml pins a
+# NEWER compiler so the newest lints are seen.
+rust-version = "1.92"
+license = "Apache-2.0"
+
+# Lints: the rust guide's §3.11 block, with this repo's decided amendments
+# (R-LNT-1..3). CI runs clippy with `-D warnings`, so a `warn` here gates as
+# hard as a `deny`: anything that fires today is `allow`ed with its count and
+# the follow-up that removes it, and the allow is deleted when that lands.
+# Counts are distinct sites under `--all-targets --all-features`, 2026-10-07.
+[workspace.lints.rust]
+# The guide says "forbid"; "deny" because forbid cannot be lifted per module,
+# and the CLI crate calls libc (termios, ioctl, flock) — it allows this at
+# its crate root, the ffi crates per module (R-UNS-1).
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"              # tokio, sudo-rs, rustls (R-UNS-2)
+unreachable_pub = "allow"                    # 35 sites; follow-up: pub(crate) sweep
+unnameable_types = "warn"                    # rustls, quinn, hickory
+elided_lifetimes_in_paths = "warn"           # rustls, quinn: `Foo<'_>` says a borrow is there
+unused_qualifications = "allow"              # 21 sites; follow-up: `cargo clippy --fix`
+unused_must_use = "deny"                     # tokio: a dropped Result/Future is a decision, write it (R-ERR-4)
+# Every public type derives or hand-writes Debug; a type holding a secret
+# hand-writes it and leaves the secret out (R-TYP-8).
+missing_debug_implementations = "deny"       # tokio, Firecracker; C-DEBUG
+missing_docs = "allow"                       # 835 sites; guide: "warn" (R-LNT-5), libraries first
+rust_2018_idioms = { level = "warn", priority = -1 }   # tokio, cargo, linkerd
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }   # register every cfg (R-FEA-3)
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"              # ntpd-rs, regex
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# nursery is unstable; only these three have earned a place (ruff enables exactly these)
+redundant_clone = "allow"                    # guide: "warn"; 14 sites; follow-up: `cargo clippy --fix`
+debug_assert_with_mut_call = "warn"
+unused_peekable = "allow"                    # guide: "warn"; 2 sites
+# --- restriction lints (uv/ruff/r-a/Embark/Zed) ---
+dbg_macro = "deny"                           # Zed, r-a
+todo = "deny"                                # Zed, Embark
+unimplemented = "warn"                       # hickory, Embark
+# Amended for this repo: denied in the library crates and in `src/mcp/**`
+# (stdout is the MCP server's protocol channel). The CLI crate's commands
+# write their output to stdout, so `src/lib.rs` and `src/main.rs` allow it
+# at the crate root and `src/mcp/mod.rs` denies it again (R-OBS-6).
+print_stdout = "deny"
+# Guide: "deny". 73 sites: the CLI's status lines and the shell host's
+# foreground log. Follow-up: route them through `ui`/tracing, then deny.
+print_stderr = "allow"
+exit = "allow"                               # guide: "deny"; 2 sites; follow-up: return an ExitCode
+mem_forget = "deny"                          # quiche, Embark
+await_holding_lock = "deny"                  # Embark (R-ASY-4)
+await_holding_refcell_ref = "deny"
+let_underscore_must_use = "deny"             # R-ERR-4
+let_underscore_future = "deny"
+# Guide: "warn". Amended: airdress-shell-proto is exempt by decision (its
+# errors are a closed wire enum; it allows this at its crate root). 29 other
+# sites (CLI, shell host, mock host); follow-up: fix them, then "warn".
+map_err_ignore = "allow"
+undocumented_unsafe_blocks = "deny"           # every unsafe block says why it holds (R-UNS-2)
+allow_attributes_without_reason = "allow"    # guide: "warn"; 26 existing bare allows; follow-up: add reasons
+iter_over_hash_type = "allow"                # guide: "warn"; 11 sites (R-PRF-5)
+# Amended: `src/` only. An integration test under `tests/` is a test crate by
+# construction; each crate root sets this to "warn" for its own `src/`.
+tests_outside_test_module = "allow"
+rc_buffer = "warn"                           # uv/ruff: Rc<Vec<T>> -> Rc<[T]>
+rc_mutex = "warn"
+rest_pat_in_fully_bound_structs = "warn"     # uv/ruff
+get_unwrap = "warn"                          # uv/ruff: indexing says what it does
+manual_let_else = "allow"                    # guide: "warn"; 9 sites
+or_fun_call = "allow"                        # guide: "warn"; 20 sites
+use_self = "allow"                           # guide: "warn"; 89 sites; follow-up: `cargo clippy --fix`
+str_to_string = "allow"                      # guide: "warn"; 51 sites
+# clippy.toml carries the list (R-LNT-4). Entries that fire today are
+# commented out there with their counts, so these stay "deny" for the rest.
+disallowed_methods = "deny"
+disallowed_types = "deny"
+disallowed_macros = "deny"
+# --- pedantic allows, each with its reason (hyper/uv/ruff form) ---
+missing_errors_doc = "allow"                 # the error type documents itself; `# Errors` where it adds a fact
+missing_panics_doc = "allow"                 # R-ERR-3 demands the reason at the `expect` instead
+module_name_repetitions = "allow"            # `enrollment::EnrollmentError` is the clearer name
+must_use_candidate = "allow"                 # too noisy; `#[must_use]` is added where misuse has a cost
+too_many_lines = "allow"                     # a long match over a closed enum is not a defect
+doc_markdown = "allow"                       # acronyms (OTel, OTLP, SNI) are not items to backtick
+cast_possible_truncation = "allow"           # `try_from` at wire edges is enforced by review
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+# --- ratchet: pedantic lints that fire today (sites). Delete a line once its
+# sites are fixed; never add one for new code. ---
+assigning_clones = "allow"                   # 9
+bool_to_int_with_if = "allow"                # 1
+borrow_as_ptr = "allow"                      # 19
+cast_lossless = "allow"                      # 6
+cast_precision_loss = "allow"                # 7
+cast_ptr_alignment = "allow"                 # 2 (ffi crates)
+default_trait_access = "allow"               # 4
+duration_suboptimal_units = "allow"          # 15
+explicit_iter_loop = "allow"                 # 6
+fn_params_excessive_bools = "allow"          # 1
+float_cmp = "allow"                          # 1
+format_collect = "allow"                     # 7
+format_push_string = "allow"                 # 47
+if_not_else = "allow"                        # 4
+ignored_unit_patterns = "allow"              # 1
+items_after_statements = "allow"             # 14
+large_stack_arrays = "allow"                 # 1
+many_single_char_names = "allow"             # 9
+map_unwrap_or = "allow"                      # 23
+match_bool = "allow"                         # 2
+match_same_arms = "allow"                    # 3
+match_wildcard_for_single_variants = "allow" # 2
+missing_fields_in_debug = "allow"            # 1
+needless_continue = "allow"                  # 6
+needless_pass_by_value = "allow"             # 42
+nonminimal_bool = "allow"                    # 1
+ptr_as_ptr = "allow"                         # 3
+redundant_closure_for_method_calls = "allow" # 5
+ref_option = "allow"                         # 2
+semicolon_if_nothing_returned = "allow"      # 18
+similar_names = "allow"                      # 12
+single_match_else = "allow"                  # 15
+stable_sort_primitive = "allow"              # 5
+struct_excessive_bools = "allow"             # 8
+struct_field_names = "allow"                 # 4
+unchecked_time_subtraction = "allow"         # 1
+uninlined_format_args = "allow"              # 1
+unnecessary_join = "allow"                   # 1
+unnecessary_trailing_comma = "allow"         # 2
+unnecessary_wraps = "allow"                  # 3
+unnested_or_patterns = "allow"               # 4
+unreadable_literal = "allow"                 # 22
+unused_async = "allow"                       # 2
+unused_async_trait_impl = "allow"            # 3
+unused_self = "allow"                        # 3
+wildcard_imports = "allow"                   # 3
+
+[package]
+name = "airdress"
+version = "0.1.0"
+description = "Airdress CLI — auth, profiles, and credential management"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# One library, two consumers: the `airdress` binary and the MCP server
+# in `crates/airdress-mcp`, which reuses the profile store, the token
+# refresh and every API client rather than keeping a second copy of any
+# of them (SPEC-133 FR-9).
+[lib]
+name = "airdress"
+path = "src/lib.rs"
+
+[[bin]]
+name = "airdress"
+path = "src/main.rs"
+
+[features]
+default = []
+# Links airdress-mls and exposes it as `airdress::mls`. See the
+# dependency's comment for why it is off by default.
+mls = ["dep:airdress-mls", "dep:airdress-mls-client", "dep:chacha20poly1305"]
+
+[dependencies]
+airdress-mcp-catalogue = { version = "0.1.0", path = "crates/airdress-mcp-catalogue" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
+sha2 = "0.10"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+# float_roundtrip: a bus write is signed over canonical JSON (RFC 8785), and
+# without it a large exponent parses one ulp off and hashes differently on
+# the operator. The operator enables it too.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+tokio = { version = "1", features = ["full"] }
+# `CancellationToken` for the long-running modes (R-ASY-1/3): `mcp serve`
+# and `agent device serve` cancel their tasks through one token tree.
+tokio-util = "0.7"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+# `Redacted<T>` wipes the secret it holds on drop (src/redact.rs).
+zeroize = "1.8"
+webbrowser = "1"
+toml = "0.8"
+qrcodegen = "1.8"
+rand = "0.8"
+serde_yaml = "0.9"
+uuid = { version = "1", features = ["serde", "v4"] }
+# SPEC-056 `device bootstrap` — same versions airdress-operator pins for
+# the identical wire ceremony (crates/airdress-operator/Cargo.toml).
+base64 = "0.22"
+ed25519-dalek = { version = "2.1", features = ["rand_core", "zeroize"] }
+# SPEC-054 task 1.8 — root-key persistence. Pinned to the 3.x line
+# (4.x split the credential stores into separate crates; revisit when
+# it settles). Features select one native store per platform; the
+# module's file fallback covers hosts where none is usable.
+# Secret Service is NOT here, and that is deliberate: see the
+# target-specific block below. The stores named here need no C library,
+# so this line builds for every target including musl.
+keyring = { version = "3.6", default-features = false, features = [
+    "apple-native",
+    "windows-native",
+] }
+
+# Machine-signed requests (RFC 9421): the operator's own signing crate, so
+# the CLI and the operator's verifier cannot drift apart (SPEC-113 D-10,
+# task 113-B.1). Pinned to an operator release tag.
+airdress-httpsig = { version = "0.2.0", git = "https://github.com/airdress-co/airdress-httpsig", tag = "v0.2.0" }
+
+# The MLS client — the same engine the phone runs through its C ABI and
+# the operator's agent links — for the agent device (SPEC-133 D-20).
+# Optional and OFF by default: the released binary and the MCP server
+# carry no MLS until something here needs it, and CI asserts that the
+# default dependency tree has no mls-rs in it. Pinned by commit, like
+# every consumer, so all three run one engine at one revision.
+# Seals the agent device's local chat store (the same AEAD the MLS
+# state is sealed with); only with `mls`.
+chacha20poly1305 = { version = "0.10", optional = true }
+airdress-mls = { version = "0.2.0", git = "https://github.com/airdress-co/airdress-mls", rev = "bbc54360ceb37716a6e52cd11c0ac492f9f6a4f9", optional = true }
+# The envelope pump's decisions, the conversation directory and the root
+# pins, ported from the phone (one revision with airdress-mls above, so
+# both name one engine type).
+airdress-mls-client = { version = "0.2.0", git = "https://github.com/airdress-co/airdress-mls", rev = "bbc54360ceb37716a6e52cd11c0ac492f9f6a4f9", optional = true }
+http = "1"
+
+# Shells (the client half): the end-to-end protocol the host, the app and
+# the editor share, and the termios and window-size calls a raw terminal
+# needs.
+airdress-shell-proto = { version = "0.1.0", path = "crates/airdress-shell-proto" }
+airdress-shell-host = { version = "0.1.0", path = "crates/airdress-shell-host" }
+libc = "0.2"
+
+# ── Secret Service, on glibc Linux only ──────────────────────────────────────
+# `keyring`'s `sync-secret-service` feature reaches libdbus through
+# `dbus-secret-service`, and libdbus has to be built FOR THE TARGET.
+# There is no musl libdbus on a GitHub runner, so a statically linked
+# release build died in `libdbus-sys-0.2.7/build.rs` — on x86_64 as well
+# as aarch64. Measured 2026-10-04, the first time the release workflow
+# was ever exercised; it had never run, so this was latent from the day
+# it was written.
+#
+# Scoped to `target_env = "gnu"` rather than dropped, so the split is:
+#
+#   * a cargo build on a Linux desktop keeps the OS keyring, which is
+#     what SPEC-054 chose and where a developer's key should live;
+#   * the statically linked binary the launcher downloads uses
+#     `device::root_key`'s file fallback, which it has always had for
+#     keyring-less hosts.
+#
+# That difference is real and is written down in docs/root-key.md, because
+# a key living somewhere else in the binary you DOWNLOAD than in the one
+# you BUILD is exactly the surprise that costs an afternoon later.
+#
+# The lockfile keeps the dbus crates either way — it is the union over
+# targets — so `--locked` still works for both builds.
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+keyring = { version = "3.6", default-features = false, features = [
+    "sync-secret-service",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+# The other MLS member in tests/agent_chat.rs (the operator's agent), with
+# the shared helper that signs a v2 delegation. Same revision as above.
+airdress-mls = { version = "0.2.0", git = "https://github.com/airdress-co/airdress-mls", rev = "bbc54360ceb37716a6e52cd11c0ac492f9f6a4f9", features = ["test-support"] }
+airdress-mls-client = { version = "0.2.0", git = "https://github.com/airdress-co/airdress-mls", rev = "bbc54360ceb37716a6e52cd11c0ac492f9f6a4f9" }
+# Verifies a CLI-signed request exactly as the operator does: same crate,
+# same exact pin as airdress-httpsig and airdress-operator.
+httpsig-hyper = "=0.0.26"
+http-body-util = "0.1"
+bytes = "1"
+# The reference host, to drive the shell client end to end against a mock
+# operator.
+airdress-shell-proto = { version = "0.1.0", path = "crates/airdress-shell-proto", features = ["conformance"] }
+# The real host and its mock operator, to drive this CLI's own session code
+# against it (tests/shell_interop.rs).
+airdress-shell-host = { version = "0.1.0", path = "crates/airdress-shell-host", features = ["testkit"] }
+
+# Smaller test and dev artifacts: line tables keep panics and backtraces
+# readable; dependencies carry no debug info. A debugger session sets
+# CARGO_PROFILE_DEV_DEBUG=true for that build (workspace crates only).
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# The CLI's role (rust guide R-WS-8): one binary a person downloads, so size
+# and reproducibility matter more than build time. The same profile builds
+# the `airdress-mcp` artifact a plugin pins by SHA-256, and the Android `.so`s.
+[profile.release]
+# Whole-program optimization: the smallest and fastest binary, and one
+# codegen unit makes the output independent of how work was split across
+# threads, which a byte-for-byte rebuild needs.
+lto = "fat"
+codegen-units = 1
+# No symbols or debug info in what ships: smaller, and no absolute build
+# paths left behind. The C ABI's exports stay in the dynamic symbol table,
+# which is what the ffi-symbols checks read (`nm -D`).
+strip = true
+# Unwind, not abort: the CLI prints a report on panic, and the mock host's
+# C ABI catches panics (`catch_unwind`), which "abort" would defeat.
+panic = "unwind"

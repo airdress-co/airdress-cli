@@ -1,0 +1,32 @@
+name: Private cargo dependencies
+description: |
+  Mints a short-lived, read-only GitHub App token for airdress-operator and
+  points git at it, so cargo can fetch the operator's `airdress-httpsig`
+  crate (a git dependency pinned to an operator release tag). The same
+  pattern the hub uses for airdress-otel. Needs the CI_APP_ID and
+  CI_APP_PRIVATE_KEY Actions secrets on this repository.
+
+inputs:
+  app-id:
+    description: The cross-repo CI App's id (secret CI_APP_ID)
+    required: true
+  app-private-key:
+    description: The cross-repo CI App's private key (secret CI_APP_PRIVATE_KEY)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/create-github-app-token@v1
+      id: token
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.app-private-key }}
+        owner: airdress-co
+        repositories: airdress-operator
+    - name: Let git fetch the private dependency
+      shell: bash
+      env:
+        TOKEN: ${{ steps.token.outputs.token }}
+      run: |
+        git config --global url."https://x-access-token:${TOKEN}@github.com/airdress-co/".insteadOf "https://github.com/airdress-co/"

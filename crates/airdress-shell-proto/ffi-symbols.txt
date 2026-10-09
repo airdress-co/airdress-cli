@@ -1,0 +1,29 @@
+# Every symbol the C ABI exports (src/ffi.rs), one per line.
+# A unit test holds this list to the source, and
+# scripts/shell-proto-ffi-symbols.sh holds it to nm on the Android .so.
+airdress_shell_protocol_version
+airdress_shell_buf_free
+airdress_shell_keypair_generate
+airdress_shell_keypair_public
+airdress_shell_fingerprint
+airdress_shell_initiator_start
+airdress_shell_initiator_start_resume
+airdress_shell_initiator_finish
+airdress_shell_initiator_free
+airdress_shell_channel_seal
+airdress_shell_channel_open
+airdress_shell_channel_seal_rekey
+airdress_shell_channel_note_peer_rekey
+airdress_shell_channel_rekey_due
+airdress_shell_channel_handshake_hash
+airdress_shell_channel_free
+airdress_shell_presence_message
+airdress_shell_presence_verify
+airdress_shell_device_keys_signed_bytes
+airdress_shell_messages_encode
+airdress_shell_messages_decode
+airdress_shell_recording_open
+airdress_shell_recording_open_chunk
+airdress_shell_recording_free
+airdress_shell_recording_rewrap
+airdress_shell_vectors_verify

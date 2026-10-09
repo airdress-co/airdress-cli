@@ -1,0 +1,4 @@
+# Rust guide R-STY-1, except the edition: 2021 until the crates move to 2024.
+edition = "2021"
+max_width = 100
+use_field_init_shorthand = true
