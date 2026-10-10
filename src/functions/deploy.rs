@@ -280,7 +280,11 @@ async fn run_directory(run: &Run<'_>, dir: &Path) -> Result<Report> {
 }
 
 /// `--name`, else the manifest's `metadata.name`, else the directory's.
-fn function_name(flag: Option<&str>, manifest: Option<&Value>, dir: &Path) -> Result<String> {
+pub(crate) fn function_name(
+    flag: Option<&str>,
+    manifest: Option<&Value>,
+    dir: &Path,
+) -> Result<String> {
     if let Some(n) = flag {
         return Ok(n.to_owned());
     }

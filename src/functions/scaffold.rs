@@ -194,6 +194,52 @@ pub fn config_json(config: &Value) -> Value {
     )
 }
 
+/// The template whose function serves as a `Hook`. A hook is bound by a second resource the template cannot
+/// carry — the operator's source trees hold `function.json` and `src/`
+/// only — so the scaffold writes it beside them.
+pub const HOOK_TEMPLATE: &str = "hook-validate";
+
+/// The `Hook` manifest that binds a scaffolded hook function, and a README
+/// that says how to apply it: `(file name, text)` pairs, written beside the
+/// tree and never published. `function` is the Function's `metadata.name`,
+/// which a deploy takes from `--name`, else the directory's name.
+pub fn hook_companions(template: &str, function: &str) -> Vec<(&'static str, String)> {
+    if template != HOOK_TEMPLATE {
+        return Vec::new();
+    }
+    let hook = format!(
+        "# Binds the function `{function}` to every apply of an InferencePoolMember.\n\
+         # Deploy the function first (`airdress fn deploy`), then:\n\
+         #   airdress apply -f hook.yaml\n\
+         # A hook function may be granted `log` only; a grant of anything else is\n\
+         # refused when this Hook is applied.\n\
+         apiVersion: airdress.co/v1alpha1\n\
+         kind: Hook\n\
+         metadata:\n  name: {function}\n\
+         spec:\n\
+         \x20 point: airdress.resource.will_apply\n\
+         \x20 mode: validate\n\
+         \x20 # Only these applies call the function; drop the line to judge every Kind.\n\
+         \x20 match: \"data.kind == 'InferencePoolMember'\"\n\
+         \x20 # What a timeout or crash does: `ignore` lets the apply through, `fail` refuses it.\n\
+         \x20 failurePolicy: ignore\n\
+         \x20 timeoutMs: 200\n\
+         \x20 handler:\n\
+         \x20   function:\n\
+         \x20     name: {function}\n"
+    );
+    let readme = format!(
+        "# {function}\n\n\
+         A hook function: the operator calls it before an apply and it answers\n\
+         `allow`, or `deny` with a reason. Deploy it with `airdress fn deploy`, then\n\
+         bind it with the `Hook` beside it: `airdress apply -f hook.yaml`.\n\n\
+         `airdress events catalog --points` lists the points a `Hook` can bind.\n\
+         Remove the binding with `airdress delete Hook/{function}`; that always\n\
+         succeeds, even while the hook refuses everything else.\n"
+    );
+    vec![("hook.yaml", hook), ("README.md", readme)]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +393,22 @@ mod tests {
         std::fs::write(dir.path().join("keep.txt"), "mine").unwrap();
         let t = relay();
         assert!(write_files(dir.path(), t["files"].as_object().unwrap()).is_err());
+    }
+
+    #[test]
+    fn a_hook_template_gets_the_hook_that_binds_it() {
+        assert!(hook_companions("hello", "x").is_empty());
+        let files = hook_companions(HOOK_TEMPLATE, "require-team");
+        let names: Vec<&str> = files.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, ["hook.yaml", "README.md"]);
+        let hook: serde_json::Value = serde_yaml::from_str(&files[0].1).unwrap();
+        assert_eq!(hook["kind"], "Hook");
+        assert_eq!(hook["metadata"]["name"], "require-team");
+        assert_eq!(hook["spec"]["point"], "airdress.resource.will_apply");
+        assert_eq!(hook["spec"]["mode"], "validate");
+        assert_eq!(hook["spec"]["match"], "data.kind == 'InferencePoolMember'");
+        assert_eq!(hook["spec"]["handler"]["function"]["name"], "require-team");
+        assert!(files[1].1.contains("airdress apply -f hook.yaml"));
     }
 
     #[test]

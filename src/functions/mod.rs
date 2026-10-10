@@ -1105,7 +1105,16 @@ async fn new(
     let files = t["files"]
         .as_object()
         .with_context(|| format!("template {id} carries no files"))?;
-    let written = scaffold::write_files(dir, files)?;
+    let mut written = scaffold::write_files(dir, files)?;
+    // A hook function comes with the Hook that binds it, beside the tree.
+    let companions = match deploy::function_name(None, None, dir) {
+        Ok(name) => scaffold::hook_companions(id, &name),
+        Err(_) => Vec::new(),
+    };
+    for (file, text) in &companions {
+        crate::fsx::write(dir.join(file), text)?;
+        written.push((*file).to_owned());
+    }
     // The create manifest, beside the tree: what Deploy applies (and shows
     // in full) when it creates the function. Without it a template's
     // `spec.events` would be lost, since `function.json` does not carry it.

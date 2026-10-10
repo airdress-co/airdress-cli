@@ -540,6 +540,9 @@ pub fn example_test(template: &str, grants: &[String]) -> String {
     if template == "dwell-webhook" {
         return DWELL_TEST.to_owned();
     }
+    if template == super::scaffold::HOOK_TEMPLATE {
+        return HOOK_TEST.to_owned();
+    }
     let granted = grants
         .iter()
         .map(|g| format!("\"{g}\""))
@@ -569,6 +572,40 @@ try {\n\
   const res = await handler(fakeRequest({ url: \"http://fn.local/hello\" }));\n\
   if (res.status >= 500) {\n\
     throw new Error(`the function answered ${res.status}: ${await res.text()}`);\n\
+  }\n\
+} finally {\n\
+  host.restore();\n\
+}\n\
+console.log(\"ok\");\n";
+
+const HOOK_TEST: &str = "// A test of the hook against a fake host: the call the operator makes\n\
+// when a Hook names this function (POST / with x-airdress-trigger: hook),\n\
+// once without the label it requires and once with it.\n\
+//\n\
+__RUN__\n\
+import { installFakeHost, fakeRequest } from \"@airdress/functions/testing\";\n\
+import validate from \"../src/main.ts\";\n\
+\n\
+const call = (labels: Record<string, string>) =>\n\
+  fakeRequest({\n\
+    method: \"POST\",\n\
+    trigger: \"hook\",\n\
+    body: {\n\
+      hook: \"require-team\",\n\
+      point: \"airdress.resource.will_apply\",\n\
+      mode: \"validate\",\n\
+      input: { kind: \"InferencePoolMember\", name: \"nas\", labels, spec: {}, actor: \"owner\", dry_run: false },\n\
+    },\n\
+  });\n\
+const host = installFakeHost({ granted: [\"log\"], config: {} });\n\
+try {\n\
+  const denied = await (await validate(call({}))).json();\n\
+  if (denied.decision !== \"deny\" || !denied.reason) {\n\
+    throw new Error(`an apply without the label should be denied with a reason: ${JSON.stringify(denied)}`);\n\
+  }\n\
+  const allowed = await (await validate(call({ team: \"home\" }))).json();\n\
+  if (allowed.decision !== \"allow\") {\n\
+    throw new Error(`an apply with the label should be allowed: ${JSON.stringify(allowed)}`);\n\
   }\n\
 } finally {\n\
   host.restore();\n\
@@ -817,5 +854,7 @@ mod tests {
             .unwrap()
             .is_none());
         assert!(example_test("dwell-webhook", &[]).contains("Idempotency-Key"));
+        let hook = example_test("hook-validate", &["log".into()]);
+        assert!(hook.contains("trigger: \"hook\"") && hook.contains("decision !== \"deny\""));
     }
 }
