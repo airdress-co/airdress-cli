@@ -132,7 +132,15 @@ async fn dispatch(session: &Arc<Session>, name: &str, args: &Value) -> Result<Ou
             .await
             .map(Outcome::data),
         // Agent chat: answered by this machine's device host, which holds
-        // the keys; the operator's switch reaches us as its refusal.
+        // the keys. The switch is read here first, because without a
+        // device host the operator is never asked, and the answer would be
+        // advice to join a device the airdress refuses.
+        chat if chat.starts_with("chat_") && !caps.agent_devices => {
+            return Ok(Outcome::refused(not_enabled_sentence(
+                Feature::AgentDevices,
+                target.id.as_deref(),
+            )));
+        }
         chat if chat.starts_with("chat_") => crate::mcp::chat::call(session, &target, chat, args)
             .await
             .map(Outcome::data),

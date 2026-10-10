@@ -15,7 +15,9 @@
 //! - this device's own message is not pushed back;
 //! - `chat_read` returns everything, pushed ones marked `already_pushed`;
 //! - `chat_send` reaches the host with the conversation and the text;
-//! - without a device host the tools say how to get one.
+//! - without a device host the tools say how to get one;
+//! - with the airdress's agent devices off, they say that instead, and the
+//!   device host is never asked.
 
 use std::io::{BufRead, BufReader, Read as _, Write};
 use std::net::TcpListener;
@@ -67,6 +69,10 @@ fn respond(stream: &mut std::net::TcpStream, status: u16, body: &Value) {
 
 /// An operator that answers capabilities and the hub's airdress listing.
 fn spawn_http() -> u16 {
+    spawn_http_with(true)
+}
+
+fn spawn_http_with(agent_devices: bool) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || {
@@ -80,7 +86,7 @@ fn spawn_http() -> u16 {
                     respond(
                         &mut stream,
                         200,
-                        &json!({"agent_bus": false, "agent_devices": true, "mcp_local": true, "mcp_remote": false}),
+                        &json!({"agent_bus": false, "agent_devices": agent_devices, "mcp_local": true, "mcp_remote": false}),
                     );
                 } else {
                     respond(&mut stream, 200, &json!({"items": [], "next_cursor": null}));
@@ -442,5 +448,47 @@ fn without_a_device_host_the_tools_say_how_to_get_one() {
     let text = r.to_string();
     assert_eq!(r["result"]["isError"], true, "{r}");
     assert!(text.contains("airdress-agent device join"), "{text}");
+    server.stop();
+}
+
+#[test]
+fn with_agent_devices_off_the_tools_say_so_and_never_ask_the_host() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("state");
+    let port = spawn_http_with(false);
+    let operator_host = format!("127.0.0.1:{port}");
+    profile_store(home.path(), port, &operator_host);
+    // A device host IS serving: the refusal must not depend on its absence.
+    let host = Arc::new(Mutex::new(Host::default()));
+    spawn_device_host(
+        &airdress::agent_bus::socket::socket_path(
+            &airdress::agent_bus::socket::device_dir(&state, &operator_host),
+            None,
+        ),
+        Arc::clone(&host),
+    );
+    let mut server = Server::start(home.path(), &state, &operator_host, &[]);
+    for (id, name, args) in [
+        (2, "chat_conversations", json!({})),
+        (3, "chat_read", json!({})),
+        (
+            4,
+            "chat_send",
+            json!({"conversation_id": "c-own", "text": "hi"}),
+        ),
+    ] {
+        let r = server.tool(id, name, args);
+        let text = r.to_string();
+        assert_eq!(r["result"]["isError"], true, "{name}: {r}");
+        assert!(
+            text.contains("not enabled on this airdress"),
+            "{name}: {text}"
+        );
+        assert!(!text.contains("device join"), "{name}: {text}");
+    }
+    assert!(
+        host.lock().unwrap().sent.is_empty(),
+        "chat_send reached the host"
+    );
     server.stop();
 }
