@@ -9,8 +9,8 @@
 #![warn(clippy::tests_outside_test_module)]
 
 use airdress::{
-    airdresses, auth, build_version, current, device, functions, home, machine_admin, mcp, plugins,
-    profile, resources, shell_client, tls, update,
+    airdresses, auth, build_version, current, device, events, functions, home, machine_admin, mcp,
+    plugins, profile, resources, shell_client, tls, update,
 };
 
 use std::process::ExitCode;
@@ -214,6 +214,21 @@ enum Commands {
         machine_key: Option<std::path::PathBuf>,
         #[command(subcommand)]
         command: functions::FunctionsCommands,
+    },
+    /// The operator's events: the catalogue of event types and interception
+    /// points, a receiver that prints what a subscription delivers, and
+    /// redeliver / test for an `EventSubscription`. Apply, read and delete
+    /// subscriptions with `airdress apply` / `get` / `delete`.
+    Events {
+        /// Profile to authenticate against
+        #[arg(short, long, global = true)]
+        profile: Option<String>,
+        /// Talk to this operator URL directly instead of resolving
+        /// `https://<fqdn>` via the hub. Dev-only, as on `device pair`.
+        #[arg(long, global = true, value_name = "URL")]
+        operator_url: Option<String>,
+        #[command(subcommand)]
+        command: events::EventsCommands,
     },
     /// Decide on machines asking to enroll with your operator: list what
     /// is waiting, approve after comparing what the machine printed, deny;
@@ -859,6 +874,24 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             )
             .await?;
         }
+        Commands::Events {
+            profile,
+            operator_url,
+            command,
+        } => {
+            events::run(
+                command,
+                events::RunArgs {
+                    profile: profile.as_deref(),
+                    paths: &paths,
+                    explicit_airdress,
+                    operator_url: operator_url.as_deref(),
+                    json: use_json,
+                    quiet,
+                },
+            )
+            .await?;
+        }
         Commands::Machines {
             profile,
             operator_url,
@@ -1205,6 +1238,81 @@ mod tests {
         assert_eq!(timeout_secs(None, None), default);
         assert_eq!(timeout_secs(None, Some("soon")), default, "garbage env");
         assert_eq!(timeout_secs(Some(5), Some("soon")), 5);
+    }
+
+    #[test]
+    fn the_events_verbs_parse() {
+        use clap::Parser as _;
+        for argv in [
+            &["airdress", "events", "catalog"][..],
+            &["airdress", "events", "catalog", "--points", "-o", "json"],
+            &[
+                "airdress",
+                "events",
+                "--operator-url",
+                "http://127.0.0.1:8080",
+                "tail",
+                "--listen",
+                "0.0.0.0:8099",
+                "--count",
+                "1",
+            ],
+            &[
+                "airdress",
+                "events",
+                "tail",
+                "--listen",
+                "[::]:8099",
+                "--signing-key",
+                "whpk_AAAA",
+            ],
+            &[
+                "airdress",
+                "events",
+                "redeliver",
+                "ha",
+                "--event-id",
+                "0199aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee",
+            ],
+            &[
+                "airdress",
+                "events",
+                "redeliver",
+                "ha",
+                "--since",
+                "2026-10-04T08:00:00Z",
+            ],
+            &["airdress", "events", "test", "ha"],
+        ] {
+            if let Err(e) = super::Cli::try_parse_from(argv) {
+                panic!("{argv:?}: {e}");
+            }
+        }
+        // tail needs an address; redeliver needs exactly one of the two.
+        for argv in [
+            &["airdress", "events", "tail"][..],
+            &["airdress", "events", "redeliver", "ha"],
+            &[
+                "airdress",
+                "events",
+                "redeliver",
+                "ha",
+                "--event-id",
+                "0199aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee",
+                "--since",
+                "2026-10-04T08:00:00Z",
+            ],
+            &[
+                "airdress",
+                "events",
+                "redeliver",
+                "ha",
+                "--since",
+                "yesterday",
+            ],
+        ] {
+            assert!(super::Cli::try_parse_from(argv).is_err(), "{argv:?}");
+        }
     }
 
     #[test]

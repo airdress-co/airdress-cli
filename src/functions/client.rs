@@ -106,7 +106,7 @@ pub struct OperatorFunctionsClient {
 /// Percent-encode one path segment (a function name, a version, a
 /// template id). `sha256:` versions carry a colon, which is legal in a
 /// path segment, so only what is not is escaped.
-fn segment(s: &str) -> String {
+pub(crate) fn segment(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         if b.is_ascii_alphanumeric() || b"-._~:".contains(&b) {

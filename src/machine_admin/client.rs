@@ -225,7 +225,7 @@ async fn checked(resp: reqwest::Response, what: &str) -> Result<reqwest::Respons
 
 /// The operator's error body: `{"error":{"code","message"}}`, or the bare
 /// `{"error":"<code>"}` some routes answer with.
-fn error_code(body: &str) -> (Option<String>, Option<String>) {
+pub(crate) fn error_code(body: &str) -> (Option<String>, Option<String>) {
     let Ok(v) = serde_json::from_str::<Value>(body) else {
         return (None, None);
     };

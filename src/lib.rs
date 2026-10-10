@@ -32,6 +32,7 @@ pub mod cli_setup;
 pub mod context;
 pub mod current;
 pub mod device;
+pub mod events;
 pub mod exit;
 pub mod fsx;
 pub mod functions;

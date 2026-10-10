@@ -107,6 +107,8 @@ wdjb
 wdjbmjht
 webbrowser
 webdav
+whpk
+whsec
 worklaptop
 worktree
 worktrees
