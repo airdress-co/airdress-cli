@@ -213,7 +213,9 @@ webbrowser = "1"
 toml = "0.8"
 qrcodegen = "1.8"
 rand = "0.8"
-serde_yaml = "0.9"
+# The maintained fork of serde_yaml (its YAML parser is unmaintained,
+# per the advisory database); same API, so the code keeps its old name.
+serde_yaml = { package = "serde_norway", version = "0.9" }
 uuid = { version = "1", features = ["serde", "v4"] }
 # SPEC-056 `device bootstrap` — same versions airdress-operator pins for
 # the identical wire ceremony (crates/airdress-operator/Cargo.toml).

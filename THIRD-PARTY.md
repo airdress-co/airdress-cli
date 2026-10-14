@@ -303,7 +303,7 @@ this project may not ship, and `deny.toml` lists the ones it may.
 | [rustc_version](https://github.com/djc/rustc-version-rs) | 0.4.1 | MIT OR Apache-2.0 |
 | [rustix](https://github.com/bytecodealliance/rustix) | 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | [rustix-openpty](https://github.com/sunfishcode/rustix-openpty) | 0.2.0 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
-| [rustls](https://github.com/rustls/rustls) | 0.23.45 | Apache-2.0 OR ISC OR MIT |
+| [rustls](https://github.com/rustls/rustls) | 0.23.46 | Apache-2.0 OR ISC OR MIT |
 | [rustls-pki-types](https://github.com/rustls/pki-types) | 1.14.1 | MIT OR Apache-2.0 |
 | [rustls-webpki](https://github.com/rustls/webpki) | 0.103.15 | ISC |
 | [rustversion](https://github.com/dtolnay/rustversion) | 1.0.22 | MIT OR Apache-2.0 |
@@ -322,11 +322,11 @@ this project may not ship, and `deny.toml` lists the ones it may.
 | [serde_core](https://github.com/serde-rs/serde) | 1.0.228 | MIT OR Apache-2.0 |
 | [serde_derive](https://github.com/serde-rs/serde) | 1.0.228 | MIT OR Apache-2.0 |
 | [serde_json](https://github.com/serde-rs/json) | 1.0.149 | MIT OR Apache-2.0 |
+| [serde_norway](https://github.com/cafkafk/serde-yaml) | 0.9.42 | MIT OR Apache-2.0 |
 | [serde_path_to_error](https://github.com/dtolnay/path-to-error) | 0.1.20 | MIT OR Apache-2.0 |
 | [serde_repr](https://github.com/dtolnay/serde-repr) | 0.1.21 | MIT OR Apache-2.0 |
 | [serde_spanned](https://github.com/toml-rs/toml) | 0.6.9 | MIT OR Apache-2.0 |
 | [serde_urlencoded](https://github.com/nox/serde_urlencoded) | 0.7.1 | MIT/Apache-2.0 |
-| [serde_yaml](https://github.com/dtolnay/serde-yaml) | 0.9.34+deprecated | MIT OR Apache-2.0 |
 | [sfv](https://github.com/undef1nd/sfv) | 0.15.0 | MIT/Apache-2.0 |
 | [sha1](https://github.com/RustCrypto/hashes) | 0.10.7 | MIT OR Apache-2.0 |
 | [sha2](https://github.com/RustCrypto/hashes) | 0.10.9 | MIT OR Apache-2.0 |
@@ -393,7 +393,7 @@ this project may not ship, and `deny.toml` lists the ones it may.
 | [unicode-width](https://github.com/unicode-rs/unicode-width) | 0.2.2 | MIT OR Apache-2.0 |
 | [unicode-xid](https://github.com/unicode-rs/unicode-xid) | 0.2.6 | MIT OR Apache-2.0 |
 | [universal-hash](https://github.com/RustCrypto/traits) | 0.5.1 | MIT OR Apache-2.0 |
-| [unsafe-libyaml](https://github.com/dtolnay/unsafe-libyaml) | 0.2.11 | MIT |
+| [unsafe-libyaml-norway](https://github.com/cafkafk/unsafe-libyaml-norway) | 0.2.15 | MIT |
 | [untrusted](https://github.com/briansmith/untrusted) | 0.9.0 | ISC |
 | [url](https://github.com/servo/rust-url) | 2.5.8 | MIT OR Apache-2.0 |
 | [utf8_iter](https://github.com/hsivonen/utf8_iter) | 1.0.4 | Apache-2.0 OR MIT |
