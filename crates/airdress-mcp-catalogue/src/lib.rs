@@ -203,14 +203,22 @@ pub fn all() -> Vec<Tool> {
     tools.push(Tool {
         name: "login",
         title: "Sign in to Airdress",
-        description: "Start a sign-in. Returns the verification URL and user code to \
-                      show the user; sign-in completes in the background, so call \
-                      whoami afterwards to see whether it finished.",
+        description: "Sign in. Opens the user's browser on this machine and waits for \
+                      them to approve, then says who signed in. With no browser here, \
+                      or with device set, returns a URL and code to use on any device \
+                      instead; that sign-in completes in the background, so call \
+                      whoami afterwards.",
         input_schema: schema(
-            vec![(
-                "profile",
-                json!({"type": "string", "description": "CLI profile to sign in. Omitted: the active one."}),
-            )],
+            vec![
+                (
+                    "profile",
+                    json!({"type": "string", "description": "CLI profile to sign in. Omitted: the active one."}),
+                ),
+                (
+                    "device",
+                    json!({"type": "boolean", "description": "Sign in from a browser on another device (a URL and a code) instead of opening one here."}),
+                ),
+            ],
             &[],
         ),
         read_only: false,

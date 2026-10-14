@@ -579,3 +579,88 @@ async fn a_hub_without_its_own_sign_in_still_signs_in_directly() {
         other => panic!("expected the legacy sign-in, got {other:?}"),
     }
 }
+
+/// The browser for a background sign-in: follows the hub's redirect back
+/// to the loopback port, as a person approving would.
+fn approving_browser(url: &str) -> bool {
+    let url = url.to_owned();
+    tokio::spawn(async move {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let r = client.get(&url).send().await.unwrap();
+        let location = r.headers()["location"].to_str().unwrap().to_owned();
+        client.get(&location).send().await.unwrap();
+    });
+    true
+}
+
+const WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_editor_sign_in_opens_the_browser_and_says_who_signed_in() {
+    let home = Home::new();
+    let (base, hub) = mock_hub(true).await;
+    storage::write_profile(&home.paths, "p", &empty_profile(&base)).unwrap();
+    let opts = login::BackgroundOpts {
+        device: false,
+        wait: WAIT,
+    };
+    let out = login::begin_background_with(&home.paths, Some("p"), opts, Some(approving_browser))
+        .await
+        .unwrap();
+    let login::BackgroundLogin::SignedIn { profile, .. } = out else {
+        panic!("expected a finished sign-in, got {out:?}");
+    };
+    assert_eq!(profile, "p");
+    assert_eq!(hub.lock().unwrap().authorize["prompt"], "select_account");
+    let stored = storage::read_profile(&home.paths, "p").unwrap();
+    assert!(matches!(stored.auth, Some(AuthConfig::Hub { .. })));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_editor_sign_in_without_a_browser_gives_a_link_and_a_code() {
+    let (base, hub) = mock_hub(true).await;
+    let no_browser: Option<fn(&str) -> bool> = None;
+    for (device, browser) in [
+        (false, no_browser),
+        (true, Some(approving_browser as fn(&str) -> bool)),
+    ] {
+        let home = Home::new();
+        storage::write_profile(&home.paths, "p", &empty_profile(&base)).unwrap();
+        let opts = login::BackgroundOpts { device, wait: WAIT };
+        let out = login::begin_background_with(&home.paths, Some("p"), opts, browser)
+            .await
+            .unwrap();
+        let login::BackgroundLogin::Pending(p) = out else {
+            panic!("expected the device flow, got {out:?}");
+        };
+        assert!(!p.opened_browser);
+        assert_eq!(p.user_code.as_deref(), Some("ABCD-EFGH"));
+        assert!(p
+            .verification_url
+            .starts_with(&format!("{base}/oauth/device")));
+    }
+    // Neither case asked the authorization endpoint.
+    assert!(hub.lock().unwrap().authorize.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_browser_that_will_not_open_falls_back_to_the_device_flow() {
+    let home = Home::new();
+    let (base, _) = mock_hub(true).await;
+    storage::write_profile(&home.paths, "p", &empty_profile(&base)).unwrap();
+    let opts = login::BackgroundOpts {
+        device: false,
+        wait: WAIT,
+    };
+    let out = login::begin_background_with(&home.paths, Some("p"), opts, Some(|_: &str| false))
+        .await
+        .unwrap();
+    let login::BackgroundLogin::Pending(p) = out else {
+        panic!("expected the device flow, got {out:?}");
+    };
+    assert!(!p.opened_browser);
+    assert!(p.user_code.is_some());
+}

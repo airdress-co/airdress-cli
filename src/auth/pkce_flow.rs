@@ -47,7 +47,7 @@ use crate::log_err::LogErr as _;
 use crate::redact::Redacted;
 
 /// How long the loopback listener waits for the browser to come back.
-const CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
+pub(crate) const CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// The OIDC prompt that makes the IdP show its account chooser (with
 /// "use another account") even when the browser already holds a session.
@@ -278,19 +278,14 @@ async fn wait_for_code(listeners: &[TcpListener], path: &str, state: &str) -> Re
         match parse_callback(&head, path, state) {
             Ok(Callback::Ignore) => respond(&mut stream, "404 Not Found", "Not found.").await,
             Ok(Callback::Code(code)) => {
-                respond(
-                    &mut stream,
-                    "200 OK",
-                    "Signed in. You can close this tab and return to the terminal.",
-                )
-                .await;
+                respond(&mut stream, "200 OK", "Signed in. You can close this tab.").await;
                 return Ok(code);
             }
             Ok(Callback::Error { error, description }) => {
                 respond(
                     &mut stream,
                     "200 OK",
-                    "Sign-in did not complete. Return to the terminal for details.",
+                    "Sign-in did not complete. Go back to where you started it for details.",
                 )
                 .await;
                 bail!(
@@ -359,6 +354,50 @@ pub async fn run_with_opener(
     prompt: Option<&str>,
     open: impl FnOnce(&str) -> bool,
 ) -> Result<Option<DeviceFlowTokens>> {
+    let pending = start(cfg, authorization_endpoint, scopes, prompt).await?;
+    if !open(&pending.url) {
+        return Ok(None);
+    }
+    eprintln!();
+    eprintln!("Opened your browser to sign in. Pick the account for this profile.");
+    eprintln!("If nothing opened, visit:");
+    eprintln!();
+    eprintln!("  {}", pending.url);
+    eprintln!();
+    eprintln!("Waiting for the browser...");
+    pending.finish(cfg).await.map(Some)
+}
+
+/// A loopback sign-in whose listener is open and whose authorization URL
+/// is ready for a browser. Split from [`run_with_opener`] for a caller
+/// that cannot print (the MCP server): it opens the browser itself and
+/// waits on [`Self::finish`] in the background.
+pub struct PendingLoopback {
+    pub url: String,
+    listeners: Vec<TcpListener>,
+    redirect_uri: String,
+    verifier: String,
+    state: String,
+    path: String,
+}
+
+// By hand: the verifier proves the code exchange and is never printed.
+impl std::fmt::Debug for PendingLoopback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingLoopback")
+            .field("url", &self.url)
+            .field("redirect_uri", &self.redirect_uri)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Bind the loopback listener and build the authorization URL.
+pub async fn start(
+    cfg: &DeviceFlowConfig,
+    authorization_endpoint: &str,
+    scopes: &str,
+    prompt: Option<&str>,
+) -> Result<PendingLoopback> {
     let (listeners, port) = bind_loopback().await?;
     let redirect_uri = format!("http://localhost:{port}{}", cfg.loopback_path);
     let verifier = generate_verifier();
@@ -372,32 +411,42 @@ pub async fn run_with_opener(
         code_challenge: &challenge_for(&verifier),
         prompt,
     })?;
+    Ok(PendingLoopback {
+        url,
+        listeners,
+        redirect_uri,
+        verifier,
+        state,
+        path: cfg.loopback_path.clone(),
+    })
+}
 
-    if !open(&url) {
-        return Ok(None);
+impl PendingLoopback {
+    /// Wait for the browser to come back, then exchange the code.
+    pub async fn finish(self, cfg: &DeviceFlowConfig) -> Result<DeviceFlowTokens> {
+        let code = tokio::time::timeout(
+            CALLBACK_TIMEOUT,
+            wait_for_code(&self.listeners, &self.path, &self.state),
+        )
+        .await
+        .map_err(|_| anyhow!("sign-in timed out — please try again"))??;
+        exchange(cfg, &code, &self.redirect_uri, &self.verifier).await
     }
-    eprintln!();
-    eprintln!("Opened your browser to sign in. Pick the account for this profile.");
-    eprintln!("If nothing opened, visit:");
-    eprintln!();
-    eprintln!("  {url}");
-    eprintln!();
-    eprintln!("Waiting for the browser...");
+}
 
-    let code = tokio::time::timeout(
-        CALLBACK_TIMEOUT,
-        wait_for_code(&listeners, &cfg.loopback_path, &state),
-    )
-    .await
-    .map_err(|_| anyhow!("sign-in timed out — please try again"))??;
-
+async fn exchange(
+    cfg: &DeviceFlowConfig,
+    code: &str,
+    redirect_uri: &str,
+    verifier: &str,
+) -> Result<DeviceFlowTokens> {
     let client = http::client()?;
     let mut form = vec![
         ("grant_type", "authorization_code"),
-        ("code", code.as_str()),
-        ("redirect_uri", redirect_uri.as_str()),
+        ("code", code),
+        ("redirect_uri", redirect_uri),
         ("client_id", cfg.client_id.as_str()),
-        ("code_verifier", verifier.as_str()),
+        ("code_verifier", verifier),
     ];
     if let Some(resource) = cfg.resource.as_deref() {
         form.push(("resource", resource));
@@ -419,14 +468,14 @@ pub async fn run_with_opener(
         }
         bail!("token exchange failed ({err}): {desc}");
     }
-    Ok(Some(DeviceFlowTokens {
+    Ok(DeviceFlowTokens {
         access_token: body
             .access_token
             .context("token response missing access_token")?,
         refresh_token: body.refresh_token.unwrap_or_default(),
         expires_in: body.expires_in.unwrap_or(3600),
         id_token: body.id_token,
-    }))
+    })
 }
 
 #[cfg(test)]

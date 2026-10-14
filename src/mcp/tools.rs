@@ -235,21 +235,53 @@ fn profile_of(session: &Arc<Session>, args: &Value) -> Result<String> {
     }
 }
 
+/// How long `login` holds the call open for the person to approve in the
+/// browser it opened, before answering with the link instead.
+const LOGIN_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
 async fn login(session: &Arc<Session>, args: &Value) -> Result<Outcome> {
+    use crate::auth::login::{begin_background, BackgroundLogin, BackgroundOpts};
     let profile = profile_of(session, args)?;
-    let pending = crate::auth::login::begin_background(session.paths()?, Some(&profile)).await?;
-    Ok(Outcome::data(json!({
-        "profile": pending.profile,
-        "verification_url": pending.verification_url,
-        "user_code": pending.user_code,
-        "expires_in_seconds": pending.expires_in_seconds,
-        // What this sign-in does to the profile (the move to the hub's
-        // sign-in, or the legacy fallback). Show these too: a profile is
-        // never changed silently.
-        "notices": pending.notices,
-        "next": "Show the URL and the code to the user. Sign-in finishes in their \
-                 browser; call whoami afterwards to see whether it did.",
-    })))
+    let opts = BackgroundOpts {
+        device: arg_bool(args, "device").unwrap_or(false),
+        wait: LOGIN_WAIT,
+    };
+    match begin_background(session.paths()?, Some(&profile), opts).await? {
+        BackgroundLogin::SignedIn {
+            profile,
+            identity,
+            notices,
+        } => Ok(Outcome::data(json!({
+            "signed_in": true,
+            "profile": profile,
+            "account": {"email": identity.email, "subject": identity.sub},
+            // What this sign-in did to the profile (the move to the hub's
+            // sign-in, or the legacy fallback). A profile is never changed
+            // silently.
+            "notices": notices,
+            "next": "Say in one line who is signed in, and any notices.",
+        }))),
+        BackgroundLogin::Pending(p) => {
+            let next = if p.opened_browser {
+                "A browser was opened on this machine and the sign-in is still waiting. \
+                 Show the URL on its own line in case it opened out of sight; when the user \
+                 says they are done, call whoami."
+            } else {
+                "Show the URL and the code on their own lines, exactly; they work on any \
+                 device. When the user says they are done, call whoami."
+            };
+            Ok(Outcome::data(json!({
+                "signed_in": false,
+                "profile": p.profile,
+                "opened_browser": p.opened_browser,
+                "verification_url": p.verification_url,
+                "user_code": p.user_code,
+                "expires_in_seconds": p.expires_in_seconds,
+                "notices": p.notices,
+                "next": next,
+            })))
+        }
+    }
 }
 
 async fn logout(session: &Arc<Session>, args: &Value) -> Result<Outcome> {

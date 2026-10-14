@@ -436,29 +436,116 @@ fn store_tokens(
 #[derive(Debug)]
 pub struct PendingLogin {
     pub profile: String,
+    /// The page to open: the authorization page when a browser was
+    /// opened here (in case it opened somewhere the person cannot see),
+    /// the device page otherwise.
     pub verification_url: String,
-    pub user_code: String,
+    /// The device flow's code; `None` when a browser was opened here,
+    /// whose page needs no code.
+    pub user_code: Option<String>,
+    /// Whether a browser on this machine was handed the page.
+    pub opened_browser: bool,
     pub expires_in_seconds: u64,
     /// What this sign-in will do to the profile, for the person to read:
     /// the legacy fallback, a schema move. Never empty-handed silence.
     pub notices: Vec<String>,
 }
 
-/// Start a device-flow sign-in and finish it in the background.
+/// How a sign-in started for a caller with no terminal ended up.
+#[derive(Debug)]
+pub enum BackgroundLogin {
+    /// The person approved before the wait ran out.
+    SignedIn {
+        profile: String,
+        identity: IdTokenClaims,
+        notices: Vec<String>,
+    },
+    /// Still waiting for the person; it finishes in the background.
+    Pending(PendingLogin),
+}
+
+/// How [`begin_background`] reaches the person.
+#[derive(Debug, Clone, Copy)]
+pub struct BackgroundOpts {
+    /// Sign in from a browser on another device: a link and a code,
+    /// never a browser opened here.
+    pub device: bool,
+    /// How long to wait for the approval before answering `Pending`.
+    pub wait: std::time::Duration,
+}
+
+/// Whether a browser opened here would be in front of the person.
+/// Linux needs a display; a Mac reached over SSH would open one on its
+/// own screen, which is not where the person is.
+fn browser_here() -> bool {
+    let set = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+    if cfg!(target_os = "macos") {
+        !(set("SSH_CONNECTION") || set("SSH_TTY"))
+    } else if cfg!(target_os = "linux") {
+        set("DISPLAY") || set("WAYLAND_DISPLAY")
+    } else {
+        true
+    }
+}
+
+/// Store a finished sign-in and retire what the profile held before.
+async fn complete_sign_in(
+    paths: &crate::paths::Paths,
+    name: &str,
+    profile: Profile,
+    server: &LoginServer,
+    tokens: device_flow::DeviceFlowTokens,
+) -> Result<IdTokenClaims> {
+    let endpoint = profile.endpoint.clone();
+    let previous = profile.auth.clone();
+    let claims = store(paths, name, profile, server, tokens)?;
+    if let (LoginServer::Hub(_), Some(old @ AuthConfig::DeviceFlow { .. })) =
+        (server, previous.as_ref())
+    {
+        if let Err(e) = logout::revoke_legacy_tokens(&endpoint, old).await {
+            tracing::info!(error = %format!("{e:#}"), "old identity-provider tokens were not revoked");
+        }
+    }
+    Ok(claims)
+}
+
+/// Start a sign-in for a caller with no terminal of its own (the MCP
+/// server), the way a person expects an app's sign-in to work: the
+/// browser opens on the account picker, they approve, and it is done —
+/// this waits up to `opts.wait` for that and says who signed in.
 ///
-/// For a caller with no terminal of its own: it gets the URL and the
-/// code to pass to whoever is at a keyboard, and the profile is written
-/// when the person grants it. The device flow rather than the loopback
-/// picker, deliberately — a loopback redirect needs a browser on *this*
-/// machine, and the whole point here is that the person may be
-/// elsewhere.
+/// With no browser in front of the person (no display, a Mac over SSH,
+/// a browser that would not open) or when asked for one, it is the
+/// device flow instead: a link and a code to use on any device. Either
+/// way a sign-in still open when the wait runs out finishes in the
+/// background, and `whoami` tells.
 ///
-/// Nothing is printed and no browser is opened: this caller's stdout
-/// belongs to a protocol.
+/// Nothing is printed: this caller's stdout belongs to a protocol. The
+/// browser's own output is suppressed by `webbrowser`.
 pub async fn begin_background(
     paths: &crate::paths::Paths,
     profile_name: Option<&str>,
-) -> Result<PendingLogin> {
+    opts: BackgroundOpts,
+) -> Result<BackgroundLogin> {
+    let browser = browser_here().then_some(|url: &str| match webbrowser::open(url) {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::debug!(error = %e, "could not open a browser; using the device flow");
+            false
+        }
+    });
+    begin_background_with(paths, profile_name, opts, browser).await
+}
+
+/// [`begin_background`] with the browser injected: `None` when there is
+/// none in front of the person, else an opener that says whether a
+/// browser took the URL. Tests drive the redirect through it.
+pub async fn begin_background_with(
+    paths: &crate::paths::Paths,
+    profile_name: Option<&str>,
+    opts: BackgroundOpts,
+    browser: Option<impl FnOnce(&str) -> bool>,
+) -> Result<BackgroundLogin> {
     let name = match profile_name {
         Some(n) => n.to_string(),
         None => storage::read_active_profile(paths)?.unwrap_or_else(|| "default".to_string()),
@@ -472,37 +559,79 @@ pub async fn begin_background(
     }
     notices.extend(migration_notice(&name, profile.auth.as_ref(), to_hub));
     let (cfg, scopes) = plan(&server);
+
+    // The browser path is the hub's: its CLI client has the code grant by
+    // registration, where a legacy identity provider may not.
+    let authz = cfg.authorization_endpoint.clone().filter(|_| to_hub);
+    if let (false, Some(authz), Some(open)) = (opts.device, authz, browser) {
+        let pending = pkce_flow::start(
+            &cfg,
+            &authz,
+            &scopes,
+            Some(pkce_flow::PROMPT_SELECT_ACCOUNT),
+        )
+        .await?;
+        let url = pending.url.clone();
+        if open(&url) {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let (paths, name2) = (paths.clone(), name.clone());
+            tokio::spawn(async move {
+                let result = match pending.finish(&cfg).await {
+                    Ok(tokens) => complete_sign_in(&paths, &name2, profile, &server, tokens).await,
+                    Err(e) => Err(e),
+                };
+                if let Err(e) = &result {
+                    tracing::info!(error = %format!("{e:#}"), "sign-in did not complete");
+                }
+                // The caller may have stopped waiting; the profile is
+                // written either way.
+                if tx.send(result).is_err() {
+                    tracing::debug!("sign-in finished after the caller stopped waiting");
+                }
+            });
+            return match tokio::time::timeout(opts.wait, rx).await {
+                Ok(Ok(Ok(identity))) => Ok(BackgroundLogin::SignedIn {
+                    profile: name,
+                    identity,
+                    notices,
+                }),
+                Ok(Ok(Err(e))) => Err(e),
+                Ok(Err(_)) => anyhow::bail!("the sign-in stopped before it finished"),
+                Err(_) => Ok(BackgroundLogin::Pending(PendingLogin {
+                    profile: name,
+                    verification_url: url,
+                    user_code: None,
+                    opened_browser: true,
+                    expires_in_seconds: pkce_flow::CALLBACK_TIMEOUT
+                        .saturating_sub(opts.wait)
+                        .as_secs(),
+                    notices,
+                })),
+            };
+        }
+    }
+
     let start = device_flow::begin(paths, &cfg, &scopes, false).await?;
     let pending = PendingLogin {
         profile: name.clone(),
         verification_url: start.verification_url.clone(),
-        user_code: start.user_code.clone(),
+        user_code: Some(start.user_code.clone()),
+        opened_browser: false,
         expires_in_seconds: start.expires_in,
         notices,
     };
     // The sign-in finishes after this returns, so the task holds its own.
     let paths = paths.clone();
     tokio::spawn(async move {
-        match device_flow::complete(&paths, &cfg, &start).await {
-            Ok(tokens) => {
-                let endpoint = profile.endpoint.clone();
-                let previous = profile.auth.clone();
-                if let Err(e) = store(&paths, &name, profile, &server, tokens) {
-                    tracing::warn!(error = %format!("{e:#}"), "sign-in finished but the profile could not be written");
-                    return;
-                }
-                if let (true, Some(old @ AuthConfig::DeviceFlow { .. })) =
-                    (to_hub, previous.as_ref())
-                {
-                    if let Err(e) = logout::revoke_legacy_tokens(&endpoint, old).await {
-                        tracing::info!(error = %format!("{e:#}"), "old identity-provider tokens were not revoked");
-                    }
-                }
-            }
-            Err(e) => tracing::info!(error = %format!("{e:#}"), "sign-in did not complete"),
+        let result = match device_flow::complete(&paths, &cfg, &start).await {
+            Ok(tokens) => complete_sign_in(&paths, &name, profile, &server, tokens).await,
+            Err(e) => Err(e),
+        };
+        if let Err(e) = result {
+            tracing::info!(error = %format!("{e:#}"), "sign-in did not complete");
         }
     });
-    Ok(pending)
+    Ok(BackgroundLogin::Pending(pending))
 }
 
 fn parse_id_token_claims(id_token: &str) -> Option<IdTokenClaims> {
