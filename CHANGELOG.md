@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8](https://github.com/airdress-co/airdress-cli/compare/v0.1.7...v0.1.8) - 2026-10-19
+
+### Fixed
+
+- *(functions)* Scaffold thing and home grants as the operator's lists (120-A.8)
+- *(functions)* Recreate a deleted function, add a missing spec.source on write-back (120-A.8)
+
+### Build and release
+
+- *(deny)* Ignore the zvariant/zbus_names unmaintained notices until keyring reaches zbus 6
+
+### Other
+
+- *(cspell)* Know zvariant, which the v0.1.8 changelog names
+
 ## [0.1.7](https://github.com/airdress-co/airdress-cli/compare/v0.1.6...v0.1.7) - 2026-10-14
 
 ### Added
