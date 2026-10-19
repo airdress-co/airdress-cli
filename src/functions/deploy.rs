@@ -627,11 +627,39 @@ async fn deploy_steps(run: &Run<'_>, t: &Target, mut report: Report) -> Result<R
             ui::note(format!("{}: left out of the deploy tree: {i}", t.name));
         }
     }
-    let base = resolved.base.as_deref();
-    let check_body = tree::publish_body(&t.name, base, &Signer::Unsigned, &files);
-    let checked = match op.publish(&check_body, true).await? {
+    // With no Function to read a base from, the operator's version store may
+    // still remember the name's last version: one created, deployed, then
+    // deleted. Nothing serves it, so it is not "already serving" — it is
+    // the base a re-creation publishes on (120-A.8: a deleted function could
+    // never be deployed again from the same tree).
+    let mut base_owned = resolved.base.clone();
+    let mut check = op
+        .publish(
+            &tree::publish_body(&t.name, base_owned.as_deref(), &Signer::Unsigned, &files),
+            true,
+        )
+        .await?;
+    if !resolved.exists {
+        if let PublishOutcome::Stale(stale) = &check {
+            base_owned = Some(stale.current.clone());
+            report.notes.push(format!(
+                "{} existed before and was deleted; recreating it on its last version {}",
+                t.name, stale.current
+            ));
+            check = op
+                .publish(
+                    &tree::publish_body(&t.name, base_owned.as_deref(), &Signer::Unsigned, &files),
+                    true,
+                )
+                .await?;
+        }
+    }
+    let base = base_owned.as_deref();
+    let checked = match check {
         PublishOutcome::Published { body, .. } => body,
-        PublishOutcome::Stale(stale) if already_serving(op, t, &files, &stale.current).await? => {
+        PublishOutcome::Stale(stale)
+            if resolved.exists && already_serving(op, t, &files, &stale.current).await? =>
+        {
             // FR-25a: what runs is this very tree — an earlier deploy
             // landed and only its write-back was lost. Nothing to do but
             // let git say so.
@@ -719,6 +747,20 @@ async fn deploy_steps(run: &Run<'_>, t: &Target, mut report: Report) -> Result<R
             &files,
         )?)
     };
+    if let Some(m) = &manifest {
+        let unset = super::scaffold::unset_names(m);
+        if !unset.is_empty() {
+            return Err(stop(
+                &report,
+                DeployStop::LayoutInvalid,
+                format!(
+                    "function.yaml leaves {} empty: name the resource the grant is for, then \
+                     deploy again",
+                    unset.join(", ")
+                ),
+            ));
+        }
+    }
     let text = if let Some(m) = &manifest {
         create_text(
             &op.host(),

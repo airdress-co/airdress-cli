@@ -396,6 +396,103 @@ async fn a_new_function_is_published_then_applied_with_the_set_form() {
     assert_eq!(written, applied);
 }
 
+/// 120-A.8: a function deleted after a deploy leaves its last version in
+/// the operator's store. With no Function to serve it, that is a base to
+/// publish on, never "already serves": the deploy re-creates the function.
+#[tokio::test]
+async fn a_deleted_function_is_recreated_not_reported_unchanged() {
+    let dir = tree_dir();
+    std::fs::write(
+        dir.path().join("function.json"),
+        r#"{"entry":"src/main.ts","capabilities":[{"name":"airdress:fn/log@0.1.0"}]}"#,
+    )
+    .unwrap();
+    let digest = format!(
+        "sha256:{}",
+        tree::hex(&tree::canonical_digest(
+            &layout::select(dir.path()).unwrap().0
+        ))
+    );
+    let (report, seen) = go(
+        vec![
+            response(
+                "404 Not Found",
+                r#"{"error":{"code":"not_found","message":"no"}}"#,
+            ),
+            response(
+                "409 Conflict",
+                &format!(r#"{{"error":"source_base_stale","message":"m","current":"{BASE}"}}"#),
+            ),
+            response("200 OK", &checked(&digest)),
+            response(
+                "201 Created",
+                &serde_json::json!({ "version": NEW, "sourceDigest": digest }).to_string(),
+            ),
+            response(
+                "201 Created",
+                r#"{"kind":"Function","name":"relay","action":"created","generation":1}"#,
+            ),
+            response("200 OK", &loaded(1)),
+            response("200 OK", &format!(r#"{{"current":"{NEW}"}}"#)),
+        ],
+        owner,
+        target(dir.path(), None),
+        opts(false),
+        own_key(),
+    )
+    .await;
+    assert_eq!(report.outcome, "deployed", "{report:?}");
+    // The first check names no base; the second and the publish name the
+    // version the store remembered.
+    assert!(body_of(&seen[1]).get("basedOn").is_none());
+    assert_eq!(body_of(&seen[2])["basedOn"], BASE);
+    assert_eq!(body_of(&seen[3])["basedOn"], BASE);
+    assert!(first_line(&seen[4]).starts_with("POST /v1/apply "));
+    assert_eq!(body_of(&seen[4])["metadata"]["name"], "relay");
+}
+
+/// A scaffolded grant whose Thing is not named yet stops before anything is
+/// published, naming the field.
+#[tokio::test]
+async fn an_unnamed_thing_in_the_grant_stops_before_publishing() {
+    let dir = tree_dir();
+    let local: Value = serde_json::json!({
+        "apiVersion": crate::wire::API_VERSION, "kind": "Function",
+        "spec": { "runtime": "js-source/v1",
+                  "capabilities": { "things": [{ "thing": "", "commands": ["ping"] }] } }
+    });
+    let digest = format!(
+        "sha256:{}",
+        tree::hex(&tree::canonical_digest(
+            &layout::select(dir.path()).unwrap().0
+        ))
+    );
+    let (report, seen) = go(
+        vec![
+            response(
+                "404 Not Found",
+                r#"{"error":{"code":"not_found","message":"no"}}"#,
+            ),
+            response("200 OK", &checked(&digest)),
+        ],
+        owner,
+        target(dir.path(), Some(local)),
+        opts(false),
+        own_key(),
+    )
+    .await;
+    assert_eq!(report.outcome, "layout_invalid", "{report:?}");
+    assert!(
+        report
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("spec.capabilities.things[0].thing"),
+        "{report:?}"
+    );
+    assert_eq!(seen.len(), 2, "nothing published or applied");
+}
+
 #[tokio::test]
 async fn ci_never_creates_a_function() {
     let dir = tree_dir();
