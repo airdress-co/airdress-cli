@@ -99,29 +99,65 @@ pub fn rewrite_version(text: &str, new: &str) -> Result<String> {
     let Some((spec, spec_end)) = child(&lines, 0, n, "spec") else {
         bail!("no block-style `spec:` mapping at the top level");
     };
-    let Some((source, source_end)) = child(&lines, spec + 1, spec_end, "source") else {
-        bail!("no block-style `spec.source:` mapping");
-    };
-    let Some((version, _)) = child(&lines, source + 1, source_end, "version") else {
-        bail!("`spec.source` has no `version:` line to rewrite");
-    };
-    let Some(replaced) = replace_scalar(lines[version], new) else {
-        bail!(
-            "`spec.source.version` on line {} is not a plain or quoted scalar",
-            version + 1
-        );
-    };
     let mut out: Vec<String> = lines.iter().map(|l| (*l).to_owned()).collect();
-    out[version] = replaced;
+    match child(&lines, spec + 1, spec_end, "source") {
+        Some((source, source_end)) => {
+            if let Some((version, _)) = child(&lines, source + 1, source_end, "version") {
+                let Some(replaced) = replace_scalar(lines[version], new) else {
+                    bail!(
+                        "`spec.source.version` on line {} is not a plain or quoted scalar",
+                        version + 1
+                    );
+                };
+                out[version] = replaced;
+            } else {
+                // `spec.source` without a version (signers only, say): add it
+                // as the block's first child, at the children's indent.
+                if !lines[source].trim_end().ends_with(':') {
+                    bail!("`spec.source` is not a block-style mapping");
+                }
+                let first = (source + 1..source_end).find(|&i| is_content(lines[i]));
+                let indent = first.map_or(indent_of(lines[source]) + 2, |i| indent_of(lines[i]));
+                out.insert(
+                    source + 1,
+                    format!("{}version: \"{new}\"", " ".repeat(indent)),
+                );
+            }
+        }
+        None => {
+            // A freshly scaffolded manifest has no `spec.source` until its
+            // first deploy (120-A.8): add the block after `spec`'s last
+            // content line, at the indent of `spec`'s children.
+            let Some(last) = (spec + 1..spec_end).rev().find(|&i| is_content(lines[i])) else {
+                bail!("`spec:` has no children to place `source:` beside");
+            };
+            let first = (spec + 1..spec_end)
+                .find(|&i| is_content(lines[i]))
+                .unwrap_or(last);
+            let pad = " ".repeat(indent_of(lines[first]));
+            out.insert(last + 1, format!("{pad}source:"));
+            out.insert(last + 2, format!("{pad}  version: \"{new}\""));
+        }
+    }
     let out = out.join("\n");
 
-    // The proof: the result is the original with exactly one path changed.
+    // The proof: the result is the original with exactly one path set.
     let mut expected: Value =
         serde_yaml::from_str(text).context("the manifest does not parse as YAML")?;
-    expected
-        .pointer_mut("/spec/source/version")
-        .map(|v| *v = Value::String(new.to_owned()))
-        .context("the manifest has no spec.source.version")?;
+    let spec_map = expected
+        .get_mut("spec")
+        .and_then(Value::as_object_mut)
+        .context("the manifest's spec is not a mapping")?;
+    let source = spec_map
+        .entry("source")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    if source.is_null() {
+        *source = Value::Object(serde_json::Map::new());
+    }
+    source
+        .as_object_mut()
+        .context("the manifest's spec.source is not a mapping")?
+        .insert("version".into(), Value::String(new.to_owned()));
     let actual: Value =
         serde_yaml::from_str(&out).context("the rewritten manifest does not parse")?;
     if actual != expected {
@@ -334,11 +370,30 @@ spec:
     fn a_manifest_it_cannot_prove_is_never_rewritten() {
         // Flow style: refused, not reformatted.
         assert!(rewrite_version("spec: { source: { version: a } }\n", "b").is_err());
-        // No version line to replace.
-        assert!(rewrite_version("spec:\n  source:\n    signers: []\n", "b").is_err());
-        // A `version` elsewhere is not the one.
+        // Not a mapping at all.
+        assert!(rewrite_version("spec: []\n", "b").is_err());
+    }
+
+    #[test]
+    fn a_missing_source_or_version_is_added_and_every_other_byte_stays() {
+        // A freshly scaffolded manifest: no `spec.source` (120-A.8).
+        let fresh = "apiVersion: airdress.co/v1alpha1\nkind: Function\nspec:\n  runtime: js-source/v1\n  capabilities:\n    log: {}\n  # keep me\n";
+        let out = rewrite_version(fresh, "sha256:b").unwrap();
+        assert_eq!(
+            out,
+            "apiVersion: airdress.co/v1alpha1\nkind: Function\nspec:\n  runtime: js-source/v1\n  capabilities:\n    log: {}\n  source:\n    version: \"sha256:b\"\n  # keep me\n"
+        );
+        // `spec.source` with signers but no version.
+        let signers = "spec:\n  source:\n    signers: []\n";
+        assert_eq!(
+            rewrite_version(signers, "b").unwrap(),
+            "spec:\n  source:\n    version: \"b\"\n    signers: []\n"
+        );
+        // A `version` elsewhere is left alone; the one under spec.source is added.
         let elsewhere = "metadata:\n  version: x\nspec:\n  runtime: js-source/v1\n";
-        assert!(rewrite_version(elsewhere, "b").is_err());
+        let out = rewrite_version(elsewhere, "b").unwrap();
+        assert!(out.starts_with("metadata:\n  version: x\n"));
+        assert!(out.contains("  source:\n    version: \"b\"\n"));
     }
 
     #[test]
