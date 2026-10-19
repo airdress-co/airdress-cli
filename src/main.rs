@@ -510,6 +510,26 @@ enum DeviceCommands {
         label: Option<String>,
     },
 
+    /// List the devices signed in to the airdress, and which of them could
+    /// approve a new device or hold up a key reset.
+    ///
+    /// Read-only, with your own sign-in (`airdress auth login`). Only a
+    /// device that holds the airdress's key can approve a new one: never
+    /// the CLI or the editor, never an agent, never a member's phone. The
+    /// last column says which can, and the summary says what that means —
+    /// in particular when no device can, and a key reset is the way forward.
+    ///
+    /// A phone that was wiped, reinstalled or set up again for another
+    /// airdress keeps its row until it is signed out, so it is still listed
+    /// as able to approve. If every device listed as able is such a phone,
+    /// revoke it (`device revoke <ID>`) and reset the key from the app.
+    List {
+        /// Talk to this operator URL directly instead of resolving
+        /// `https://<fqdn>` via the hub. Dev-only, as on `pair`.
+        #[arg(long, value_name = "URL")]
+        operator_url: Option<String>,
+    },
+
     /// Revoke one device's enrollment by id, with your own sign-in.
     ///
     /// For a device that can no longer act for itself — a lost, wiped or
@@ -523,8 +543,9 @@ enum DeviceCommands {
     /// Otherwise you are asked to confirm; pass `--yes` to skip the
     /// prompt (required when stdin is not a terminal).
     ///
-    /// The enrollment id is the one the VS Code extension's Enrollments
-    /// node shows, or `id` in `GET /v1/endpoints/enrollments`.
+    /// The enrollment id is the last column of `device list`, the one the
+    /// VS Code extension's Enrollments node shows, or `id` in
+    /// `GET /v1/endpoints/enrollments`.
     Revoke {
         /// Enrollment id (UUID) to revoke.
         enrollment_id: uuid::Uuid,
@@ -709,6 +730,17 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     no_qr,
                     no_link,
                     label: label.as_deref(),
+                    operator_url: operator_url.as_deref(),
+                })
+                .await?;
+            }
+            DeviceCommands::List { operator_url } => {
+                device::list::run(device::list::ListArgs {
+                    profile: profile.as_deref(),
+                    paths: &paths,
+                    explicit_airdress,
+                    json: use_json,
+                    quiet,
                     operator_url: operator_url.as_deref(),
                 })
                 .await?;

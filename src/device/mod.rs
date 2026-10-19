@@ -6,11 +6,14 @@
 //! code is consumed. That assumes an owner is already bound to the
 //! operator — SPEC-056's `airdress device bootstrap` is the one rung
 //! below it, onboarding the first device on an operator that has none.
-//! `airdress device revoke` retires one, with the same owner sign-in.
+//! `airdress device revoke` retires one, with the same owner sign-in, and
+//! `airdress device list` shows every device and which could still approve
+//! a new one or object to a key reset.
 
 pub mod bootstrap;
 pub mod client;
 pub mod device_id;
+pub mod list;
 pub mod pair;
 pub mod qr;
 pub mod revoke;

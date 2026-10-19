@@ -122,6 +122,48 @@ pub struct RevokePreview {
     pub remaining_active_enrollments: Option<u64>,
 }
 
+/// One row of `GET /v1/endpoints/enrollments`, as `device list` reads it.
+///
+/// Every field an older operator may not send is optional, and "not sent"
+/// is kept distinct from `false`: an operator that predates
+/// `delegation_only` cannot say whether a `client_held` row is a phone or a
+/// terminal, and the list says "unknown" rather than guessing.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct EnrollmentRow {
+    pub id: uuid::Uuid,
+    pub device_label: String,
+    pub key_custody: String,
+    pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub last_seen_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub principal_id: Option<uuid::Uuid>,
+    /// `human` or `agent`; absent from an operator that predates agents,
+    /// which had none.
+    #[serde(default)]
+    pub device_class: Option<String>,
+    #[serde(default)]
+    pub harness: Option<String>,
+    #[serde(default)]
+    pub suspended_at: Option<DateTime<Utc>>,
+    /// Holds a root-signed delegation and never the root. `None` when the
+    /// operator does not send it.
+    #[serde(default)]
+    pub delegation_only: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EnrollmentListResponse {
+    enrollments: Vec<EnrollmentRow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SubUserRow {
+    id: uuid::Uuid,
+}
+
 /// The operator's pairing-code status (SPEC-049).
 #[derive(Debug, Deserialize)]
 struct PairingCodeStatus {
@@ -302,6 +344,49 @@ impl OperatorEnrollClient {
         Ok(())
     }
 
+    /// Every active enrollment this sign-in may see
+    /// (`GET /v1/endpoints/enrollments`). With the owner's sign-in that is
+    /// every device on the airdress.
+    pub async fn list_enrollments(&self) -> Result<Vec<EnrollmentRow>> {
+        let url = format!("{}/v1/endpoints/enrollments", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(self.bearer.expose())
+            .send()
+            .await
+            .map_err(|e| http::format_transport_error(&url, "GET", e))?;
+        let resp = http::handle_status(resp, "list enrollments").await?;
+        let body: EnrollmentListResponse = resp.json().await.context("parse enrollment list")?;
+        Ok(body.enrollments)
+    }
+
+    /// The ids of the airdress's active members other than its owner
+    /// (`GET /v1/admin/sub-users`), or `None` when the operator will not say
+    /// — an older one, or a sign-in that is not the owner's. Only used to
+    /// tell a member's device from the owner's, so a refusal is not an error.
+    pub async fn sub_user_ids(&self) -> Option<Vec<uuid::Uuid>> {
+        let url = format!("{}/v1/admin/sub-users?limit=200", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(self.bearer.expose())
+            .send()
+            .await
+            .map_err(|e| tracing::debug!(error = %e, "sub-user list unreachable"))
+            .ok()?;
+        if !resp.status().is_success() {
+            tracing::debug!(status = %resp.status(), "sub-user list refused");
+            return None;
+        }
+        let rows: Vec<SubUserRow> = resp
+            .json()
+            .await
+            .map_err(|e| tracing::debug!(error = %e, "sub-user list unreadable"))
+            .ok()?;
+        Some(rows.into_iter().map(|r| r.id).collect())
+    }
+
     /// Read the enrollment a redeemed code produced.
     async fn get_enrollment(&self, enrollment_id: uuid::Uuid) -> Result<PairingPollResult> {
         let url = format!("{}/v1/endpoints/enrollments/{enrollment_id}", self.base_url);
@@ -443,6 +528,41 @@ mod tests {
         let op = OperatorEnrollClient::with_base_url(base, "not-the-owner").unwrap();
         let err = op.preview_revoke(id()).await.unwrap_err().to_string();
         assert!(err.contains("forbidden"), "{err}");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_list_keeps_an_absent_field_apart_from_false() {
+        // One row from a current operator, one from an operator that
+        // predates `delegation_only` and `device_class`.
+        let body = r#"{"enrollments":[
+            {"id":"6f1c2a8e-0d4b-4c43-9a51-2f7d8e9b0c11","device_label":"Galaxy S23",
+             "key_custody":"client_held","created_at":"2026-10-01T00:00:00Z",
+             "last_seen_at":"2026-10-20T08:00:00Z","device_class":"human",
+             "delegation_only":false},
+            {"id":"7f1c2a8e-0d4b-4c43-9a51-2f7d8e9b0c11","device_label":"old row",
+             "key_custody":"client_held","created_at":"2026-09-01T00:00:00Z"}]}"#;
+        let (base, server) = canned_operator(vec![response(
+            "200 OK",
+            "Content-Type: application/json\r\n",
+            body,
+        )])
+        .await;
+        let op = OperatorEnrollClient::with_base_url(base, "owner.jwt.token").unwrap();
+        let rows = op.list_enrollments().await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].delegation_only, Some(false));
+        assert_eq!(rows[1].delegation_only, None);
+        assert_eq!(rows[1].device_class, None);
+        let seen = server.await.unwrap();
+        assert!(seen[0].starts_with("GET /v1/endpoints/enrollments HTTP/1.1"));
+    }
+
+    #[tokio::test]
+    async fn a_refused_member_list_is_not_an_error() {
+        let (base, server) = canned_operator(vec![response("403 Forbidden", "", "")]).await;
+        let op = OperatorEnrollClient::with_base_url(base, "t").unwrap();
+        assert_eq!(op.sub_user_ids().await, None);
         server.await.unwrap();
     }
 

@@ -18,6 +18,23 @@ airdress device pair --no-qr             # link only
 airdress device pair --output json       # for a script
 ```
 
+See every device signed in to the airdress, and which of them could
+approve a new one:
+
+```sh
+airdress device list
+airdress device list --output json
+```
+
+Only a device that holds the airdress's key can approve a new device or
+hold up a key reset. The CLI, the editor and agent devices hold a
+delegation and never the key; a member's phone is theirs, not the
+owner's. The list says which devices can, when each was last seen, and
+what that means: when none can, a key reset is the way forward and it
+does not wait. A phone that was wiped, reinstalled or set up again for
+another airdress keeps its row until it is signed out, so it still shows
+as able to approve. Revoke it, then reset the key from the app.
+
 Revoke a device that can no longer act for itself, a lost or wiped phone,
 with your own sign-in:
 
@@ -27,8 +44,8 @@ airdress device revoke <ENROLLMENT_ID>             # shows the same, asks, revok
 airdress device revoke <ENROLLMENT_ID> --yes       # scripts
 ```
 
-The enrollment id is the one the editor extension's Enrollments view
-shows.
+The enrollment id is the last column of `airdress device list`, and the
+one the editor extension's Enrollments view shows.
 
 `airdress device bootstrap` onboards the **first** device on an airdress
 that has no owner bound yet, using its bootstrap token. Prefer
