@@ -36,7 +36,17 @@ confidence-threshold = 0.9
 yanked = "deny"
 # An ignore here needs a sentence saying why the advisory does not
 # reach this code, and a date. An empty list is the resting state.
-ignore = []
+# cspell:ignore zvariant RUSTSEC
+ignore = [
+  # 2026-10-19: zvariant, zbus_names and zvariant_derive were folded into
+  # zbus 6.0 (2026-10-16) and marked unmaintained; informational, no
+  # vulnerability. They reach us only through keyring 3 -> zbus 4 (the Linux
+  # secret-service token store), and no keyring backend is on zbus 6 yet.
+  # Remove these when keyring's secret-service store moves to zbus 6.
+  "RUSTSEC-2026-0370",
+  "RUSTSEC-2026-0371",
+  "RUSTSEC-2026-0372",
+]
 
 [bans]
 multiple-versions = "allow"
