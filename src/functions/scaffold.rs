@@ -73,26 +73,79 @@ fn scalar(v: &Value) -> String {
 
 /// `requires` as the `spec.capabilities` block, indented under `spec:`.
 ///
-/// Each world the template names becomes a key the owner grants. The only
-/// world with something to fill in is `http` when `hostsRequired`: the
-/// template cannot know the hosts, so the list is left empty and says so.
-/// Worlds are read off the document rather than listed here, so a world
-/// the operator adds later appears without a client change.
+/// Each world the template names becomes a key the owner grants. Most are
+/// an empty block. Three have something to fill in, because the template
+/// cannot know the owner's names:
+///
+/// - `http` with `hostsRequired`: the hosts, left as an empty list.
+/// - `thing`: the operator's grant is `things`, a LIST of
+///   `{thing, commands}` (one entry per Thing). The scaffold writes one entry
+///   with the template's commands and the Thing's name to fill in; a deploy
+///   refuses it while the name is empty (120-A.8 — `thing: {}` was refused
+///   by the operator's schema).
+/// - `home`: a LIST of `{home, operate, track, …}`. One entry with the
+///   Home's name to fill in, the template's `operate` actions (their
+///   targets to fill in) and, for `track`, the trackers to fill in.
+///
+/// Other worlds are read off the document rather than listed here, so a
+/// world the operator adds later appears without a client change.
 pub fn capabilities_yaml(requires: &Value) -> String {
     let Some(worlds) = requires.as_object().filter(|m| !m.is_empty()) else {
         return "  capabilities: {}   # the template needs no grants\n".into();
     };
     let mut out = String::from("  capabilities:\n");
     for (world, detail) in worlds {
-        if world == "http" && detail["hostsRequired"].as_bool() == Some(true) {
-            out.push_str(
+        match world.as_str() {
+            "http" if detail["hostsRequired"].as_bool() == Some(true) => out.push_str(
                 "    http:\n      hosts: []   # name every host it may reach; the template cannot know them\n",
-            );
-        } else {
-            out.push_str(&format!("    {world}: {{}}\n"));
+            ),
+            "thing" | "things" => {
+                let commands: Vec<String> = detail["commands"]
+                    .as_array()
+                    .map(|a| a.iter().map(scalar).collect())
+                    .unwrap_or_default();
+                out.push_str("    things:\n");
+                out.push_str(
+                    "      - thing: \"\"   # required: the Thing resource it may command\n",
+                );
+                out.push_str(&format!("        commands: [{}]\n", commands.join(", ")));
+            }
+            "home" => {
+                out.push_str("    home:\n");
+                out.push_str("      - home: \"\"   # required: the Home resource it may reach\n");
+                if let Some(actions) = detail["operate"].as_array().filter(|a| !a.is_empty()) {
+                    out.push_str("        operate:\n");
+                    for action in actions {
+                        out.push_str(&format!("          - action: {}\n", scalar(action)));
+                        out.push_str(
+                            "            targets: []   # name the entities it may act on\n",
+                        );
+                    }
+                }
+                if detail["track"].as_bool() == Some(true) {
+                    out.push_str("        track: []   # name the trackers it may follow\n");
+                }
+            }
+            _ => out.push_str(&format!("    {world}: {{}}\n")),
         }
     }
     out
+}
+
+/// The scaffold's required names still empty in `manifest`: a Thing or a
+/// Home the owner has not named yet. A deploy refuses while any remain,
+/// naming the field, rather than sending a grant the operator refuses.
+pub fn unset_names(manifest: &Value) -> Vec<String> {
+    let caps = &manifest["spec"]["capabilities"];
+    let mut unset = Vec::new();
+    for (list, key) in [("things", "thing"), ("home", "home")] {
+        for (i, entry) in caps[list].as_array().into_iter().flatten().enumerate() {
+            if entry[key].as_str().is_none_or(|s| s.trim().is_empty()) {
+                unset.push(format!("spec.capabilities.{list}[{i}].{key}"));
+            }
+        }
+    }
+    unset
 }
 
 /// `config.fields` as the `spec.config` block, indented under `spec:`.
@@ -274,6 +327,58 @@ mod tests {
             capabilities_yaml(&serde_json::json!({ "kv": {} })),
             "  capabilities:\n    kv: {}\n"
         );
+    }
+
+    #[test]
+    fn thing_and_home_are_the_lists_the_operator_grants() {
+        let thing = capabilities_yaml(&serde_json::json!({
+            "thing": { "commands": ["echo"] }, "log": {}
+        }));
+        let doc: serde_yaml::Value =
+            serde_yaml::from_str(&format!("spec:\n{thing}")).expect("it parses");
+        let caps = &doc["spec"]["capabilities"];
+        assert!(
+            caps.get("thing").is_none(),
+            "never the singular key: {thing}"
+        );
+        assert_eq!(caps["things"][0]["thing"], serde_yaml::Value::from(""));
+        assert_eq!(
+            caps["things"][0]["commands"][0],
+            serde_yaml::Value::from("echo")
+        );
+
+        let home = capabilities_yaml(&serde_json::json!({
+            "home": { "operate": ["button.press"], "track": true }
+        }));
+        let doc: serde_yaml::Value =
+            serde_yaml::from_str(&format!("spec:\n{home}")).expect("it parses");
+        let entry = &doc["spec"]["capabilities"]["home"][0];
+        assert_eq!(entry["home"], serde_yaml::Value::from(""));
+        assert_eq!(
+            entry["operate"][0]["action"],
+            serde_yaml::Value::from("button.press")
+        );
+        assert!(entry["operate"][0]["targets"].as_sequence().is_some());
+        assert!(entry["track"].as_sequence().is_some());
+    }
+
+    #[test]
+    fn a_deploy_names_every_name_still_to_fill_in() {
+        let m = serde_json::json!({ "spec": { "capabilities": {
+            "things": [{ "thing": "", "commands": ["ping"] }, { "thing": "roof", "commands": ["ping"] }],
+            "home": [{ "home": " " }]
+        }}});
+        assert_eq!(
+            unset_names(&m),
+            [
+                "spec.capabilities.things[0].thing",
+                "spec.capabilities.home[0].home"
+            ]
+        );
+        let named = serde_json::json!({ "spec": { "capabilities": {
+            "things": [{ "thing": "roof", "commands": ["ping"] }]
+        }}});
+        assert!(unset_names(&named).is_empty());
     }
 
     #[test]
