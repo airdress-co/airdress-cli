@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9](https://github.com/airdress-co/airdress-cli/compare/v0.1.8...v0.1.9) - 2026-10-19
+
+### Added
+
+- *(device)* List devices and which could approve a new one or object to a key reset
+
+### Other
+
+- Update Cargo.lock dependencies
+- *(deps)* Airdress-mls v0.4.0, the revision the operator and the app pin
+
 ## [0.1.8](https://github.com/airdress-co/airdress-cli/compare/v0.1.7...v0.1.8) - 2026-10-19
 
 ### Fixed
