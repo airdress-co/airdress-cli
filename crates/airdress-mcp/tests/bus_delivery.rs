@@ -52,6 +52,9 @@ struct Bus {
     sessions: Vec<Value>,
     /// Direct messages: (to session, body).
     direct: Vec<(String, Value)>,
+    /// Refuse the next direct message as `agent_session_expired`, as an
+    /// operator does once it has forgotten a session.
+    expire_next_write: bool,
 }
 
 /// A peer's device-signed message.
@@ -301,6 +304,14 @@ fn spawn_operator(bus: Arc<Mutex<Bus>>, ours: SigningKey) -> u16 {
                             &req.body,
                             &ours,
                         );
+                        if std::mem::take(&mut bus.lock().unwrap().expire_next_write) {
+                            respond(
+                                &mut stream,
+                                404,
+                                &json!({"error": {"code": "agent_session_expired", "message": "x"}}),
+                            );
+                            return;
+                        }
                         bus.lock().unwrap().direct.push((to, req.body.clone()));
                         respond(&mut stream, 201, &json!({"id": "d-1", "seq": 1}));
                     }
@@ -658,6 +669,64 @@ fn pushed_items_are_labelled_and_reads_lose_nothing() {
         "{unknown}"
     );
 
+    // A re-registration keeps the name. The operator has forgotten the
+    // session while its old row is still listed as `@tester-2`; settling
+    // the name again would make it `tester-3`.
+    {
+        let mut b = bus.lock().unwrap();
+        let row = b
+            .sessions
+            .iter_mut()
+            .find(|r| r["id"] == ours_id.as_str())
+            .unwrap();
+        row["label"] = json!(label);
+        b.expire_next_write = true;
+    }
+    let after_expiry = server.call(
+        16,
+        "tools/call",
+        json!({"name": "bus_post", "arguments": {"to_session": "@tester", "content": "again"}}),
+    );
+    assert_eq!(after_expiry["result"]["isError"], false, "{after_expiry}");
+    let again = bus.lock().unwrap().registered.clone();
+    assert_eq!(again.len(), 2, "registered again: {again:?}");
+    assert_ne!(
+        again[1]["id"], again[0]["id"],
+        "a re-registration is a new session"
+    );
+    assert_eq!(again[1]["label"], again[0]["label"], "and keeps its name");
+    assert_eq!(
+        bus.lock().unwrap().direct.len(),
+        2,
+        "the post went through after it"
+    );
+    let who = server.call(17, "tools/call", json!({"name": "whoami", "arguments": {}}));
+    assert_eq!(
+        who["result"]["structuredContent"]["session_name"], "tester-2",
+        "{who}"
+    );
+
+    // Two live sessions under one name (an older server, or a race the
+    // operator does not settle until phase B): a post by that name is
+    // refused, naming both, rather than sent to either.
+    let mut twin = session_row("bbbbbbbb-0000-4000-8000-000000000002", "e-2", &peer, &root);
+    twin["label"] = json!("@tester · elsewhere · repo");
+    bus.lock().unwrap().sessions.push(twin);
+    let ambiguous = server.call(
+        18,
+        "tools/call",
+        json!({"name": "bus_post", "arguments": {"to_session": "tester", "content": "which?"}}),
+    );
+    assert_eq!(ambiguous["result"]["isError"], true, "{ambiguous}");
+    let text = ambiguous.to_string();
+    assert!(text.contains("session_name_ambiguous"), "{text}");
+    assert!(text.contains(PEER_SESSION), "{text}");
+    assert!(
+        text.contains("bbbbbbbb-0000-4000-8000-000000000002"),
+        "{text}"
+    );
+    assert_eq!(bus.lock().unwrap().direct.len(), 2, "nothing was sent");
+
     // Delivered once per peer message: m1 on push, m3 on read; never m2.
     let acked: Vec<String> = bus
         .lock()
@@ -677,12 +746,13 @@ fn pushed_items_are_labelled_and_reads_lose_nothing() {
         .iter()
         .any(|n| n["params"]["meta"]["message_id"] == "m2"));
 
-    // EOF ends the session at the operator.
+    // EOF ends the session at the operator: the one it re-registered as.
     drop(server.stdin.take());
     wait_until("the session's end", || {
         !bus.lock().unwrap().ended.is_empty()
     });
-    assert_eq!(bus.lock().unwrap().ended[0], ours_id);
+    let current = bus.lock().unwrap().registered[1]["id"].clone();
+    assert_eq!(bus.lock().unwrap().ended[0], current);
     let status = server.child.wait().unwrap();
     assert!(status.success());
 }
