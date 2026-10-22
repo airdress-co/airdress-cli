@@ -22,7 +22,7 @@ just clippy          # cargo clippy -- -D warnings
 just lint            # fmt-check + clippy
 just check           # pre-commit run --all-files
 just hooks-install   # install pre-commit + .githooks
-just release v0.X.Y  # trigger release workflow via GH
+just release v0.X.Y  # bare dispatch only; see CONTRIBUTING.md § Releases
 ```
 
 ## The MCP server
@@ -66,15 +66,10 @@ derives credentials from the platform tofu state automatically.
 
 ## Releasing
 
-Releases are dispatch-only — no local tag push:
-
-```sh
-just release v0.1.0-alpha.7
-# or: gh workflow run release.yml -f tag=v0.1.0-alpha.7
-```
-
-The workflow creates the tag, builds all 5 platforms, uploads to
-`downloads.airdress.co/airdress-cli/`, and creates a GitHub release.
+release-plz opens a `chore: release vX.Y.Z` pull request after every push
+to `main`; landing it with `just bot-merge` tags the release and builds
+it. The steps, and what to do when the tag does not appear, are in
+CONTRIBUTING.md § Releases. Do not run `just release` on its own.
 
 ## Login flows
 

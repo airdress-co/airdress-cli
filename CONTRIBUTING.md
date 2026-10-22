@@ -123,6 +123,38 @@ Nothing is published to crates.io.
 `just release-preview` shows locally what the next release pull request
 would carry.
 
+### Cutting one
+
+1. Read the open `chore: release vX.Y.Z` pull request's `CHANGELOG.md`
+   entry: it is what ships. Wait for its checks.
+2. Land it like any other pull request: `just bot-merge airdress-cli <pr>`.
+3. Check that it went out. The Release-plz run on `main` should say it
+   dispatched `release.yml` for the tag, and once that finishes,
+   `gh release view vX.Y.Z --repo airdress-co/airdress-cli` lists the
+   assets. `git tag --contains <the commit you needed>` names the tag.
+
+**When no tag appears.** release-plz tags only a release pull request that
+GitHub shows as *Merged*. `bot-merge` usually ends that way, but it can end
+as *Closed* with the commits on `main` (v0.1.8 did). Then nothing is tagged
+or dispatched, and you finish by hand from airdress-ops:
+
+```sh
+scripts/bot-tag.sh airdress-cli vX.Y.Z <sha of the release commit on main>
+gh workflow run release.yml --repo airdress-co/airdress-cli --ref main -f tag=vX.Y.Z
+```
+
+Dispatch before anything else lands on `main`: with an existing tag,
+`release.yml` builds `main`'s head, not the tagged commit. Never edit the
+versions by hand or push a tag yourself, and do not use `just release` on
+its own: with no tag it tags `main`'s head without annotation, as nobody in
+particular.
+
+**After a release.** The Claude Code plugin builds `airdress-mcp` from a
+pinned airdress-cli tag (`server-src.json` in
+airdress-co/airdress-claude-code). A server change reaches plugin users
+only once the plugin moves that pin and releases; its CONTRIBUTING.md has
+the steps.
+
 ## A new tool in the MCP catalogue
 
 Add it to `crates/airdress-mcp-catalogue` first: the name, the schema and
