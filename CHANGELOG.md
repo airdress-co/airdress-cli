@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10](https://github.com/airdress-co/airdress-cli/compare/v0.1.9...v0.1.10) - 2026-10-22
+
+### Added
+
+- *(mcp)* Session names, and @-mentions that reach one session
+
+### Fixed
+
+- *(mcp)* Cspell and two TLS advisories on the branch
+
 ## [0.1.9](https://github.com/airdress-co/airdress-cli/compare/v0.1.8...v0.1.9) - 2026-10-19
 
 ### Added
