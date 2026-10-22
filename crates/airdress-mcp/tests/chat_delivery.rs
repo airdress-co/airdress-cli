@@ -82,7 +82,18 @@ fn spawn_http_with(agent_devices: bool) -> u16 {
                 let Some(path) = read_request(&mut stream) else {
                     return;
                 };
-                if path.starts_with("/v1/capabilities") {
+                if path.starts_with("/v1/agent-bus/sessions") {
+                    // Two named sessions are live on the bus, so a mention
+                    // of one is known to be the other's (SPEC-166 §5.3).
+                    respond(
+                        &mut stream,
+                        200,
+                        &json!({"sessions": [
+                            {"id": "s-alice", "label": "@alice · box · repo", "enrollment_id": "e-1"},
+                            {"id": "s-bob", "label": "@bob · box · repo", "enrollment_id": "e-1"},
+                        ]}),
+                    );
+                } else if path.starts_with("/v1/capabilities") {
                     respond(
                         &mut stream,
                         200,
@@ -213,6 +224,7 @@ impl Server {
             .arg(state)
             .args(extra)
             .env("HOME", home)
+            .env_remove("AIRDRESS_SESSION_NAME")
             .env("AIRDRESS_OPERATOR_URL", format!("http://{operator_host}"))
             .env("NO_PROXY", "127.0.0.1,localhost")
             .env("no_proxy", "127.0.0.1,localhost")
@@ -420,7 +432,9 @@ fn chat_is_offered_pushed_and_never_lost() {
     assert_eq!(sent["result"]["isError"], false, "{sent}");
     let s = host.lock().unwrap().sent[0].clone();
     assert_eq!(s["conversation_id"], "c-own");
-    assert_eq!(s["text"], "hello operator");
+    // The words go out under this session's (here random) name.
+    let text = s["text"].as_str().unwrap();
+    assert!(text.ends_with(": hello operator"), "{text}");
     server.stop();
 
     // Read-only keeps the reads and drops the write.
@@ -434,6 +448,113 @@ fn chat_is_offered_pushed_and_never_lost() {
     assert!(tools.contains(&"chat_read".to_owned()));
     assert!(!tools.contains(&"chat_send".to_owned()), "{tools:?}");
     ro.stop();
+}
+
+/// Two sessions on one machine share one device host, which hands every
+/// message to both (SPEC-166 phase A). A name decides which of them is
+/// interrupted: `@bob` reaches bob and not alice, a message naming nobody
+/// reaches both, and a read still returns everything, saying whose it is.
+#[test]
+fn a_mention_reaches_only_the_named_session() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("state");
+    let port = spawn_http();
+    let operator_host = format!("127.0.0.1:{port}");
+    profile_store(home.path(), port, &operator_host);
+    let host = Arc::new(Mutex::new(Host::default()));
+    spawn_device_host(
+        &airdress::agent_bus::socket::socket_path(
+            &airdress::agent_bus::socket::device_dir(&state, &operator_host),
+            None,
+        ),
+        Arc::clone(&host),
+    );
+
+    let mut alice = Server::start(
+        home.path(),
+        &state,
+        &operator_host,
+        &["--session-name", "alice"],
+    );
+    let mut bob = Server::start(
+        home.path(),
+        &state,
+        &operator_host,
+        &["--session-name", "@Bob"],
+    );
+    let who = bob.tool(2, "whoami", json!({}));
+    let w = &who["result"]["structuredContent"];
+    assert_eq!(w["session_name"], "bob", "{who}");
+    assert_eq!(w["name_source"], "flag");
+    assert!(w["name_note"].is_null());
+
+    // Both push loops take the head first.
+    std::thread::sleep(Duration::from_millis(600));
+    {
+        let mut h = host.lock().unwrap();
+        h.messages.push(message(
+            1,
+            "e-bob",
+            "c-mine",
+            false,
+            "@bob what time is it?",
+        ));
+        h.messages
+            .push(message(2, "e-all", "c-mine", false, "hello, both of you"));
+        h.messages
+            .push(message(3, "e-typo", "c-mine", false, "@bobb hi"));
+    }
+    let is = |id: &'static str| {
+        move |n: &Value| {
+            n["method"] == "notifications/claude/channel" && n["params"]["meta"]["message_id"] == id
+        }
+    };
+    let to_bob = bob.wait_for("the message for bob", is("e-bob"));
+    let meta = &to_bob["params"]["meta"];
+    assert_eq!(meta["addressed"], "this_session");
+    assert_eq!(meta["session_name"], "bob");
+    assert_eq!(meta["mentions"], "bob");
+    assert_eq!(to_bob["params"]["content"], "@bob what time is it?");
+    let all_bob = bob.wait_for("the message for everyone, at bob", is("e-all"));
+    assert_eq!(all_bob["params"]["meta"]["addressed"], "everyone");
+    alice.wait_for("the message for everyone, at alice", is("e-all"));
+    // A name nobody holds is a typo: pushed, never dropped.
+    let typo = alice.wait_for("the typo, at alice", is("e-typo"));
+    assert_eq!(typo["params"]["meta"]["addressed"], "unmatched");
+    assert!(typo["params"]["meta"]["answer_unmatched"].is_string());
+    bob.wait_for("the typo, at bob", is("e-typo"));
+    std::thread::sleep(Duration::from_millis(400));
+    assert!(
+        !alice.notifications.iter().any(is("e-bob")),
+        "alice was interrupted with bob's message"
+    );
+
+    // Nothing is hidden from a read.
+    let read = alice.tool(3, "chat_read", json!({"conversation_id": "c-mine"}));
+    let msgs = read["result"]["structuredContent"]["messages"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(msgs.len(), 3, "{read}");
+    assert_eq!(msgs[0]["mentions"], json!(["bob"]));
+    assert_eq!(msgs[0]["addressed_to_this_session"], false);
+    assert_eq!(msgs[1]["addressed_to_this_session"], true);
+    assert_eq!(msgs[2]["addressed_to_this_session"], true);
+
+    // bob answers, and the conversation can tell which session it was.
+    let sent = bob.tool(
+        4,
+        "chat_send",
+        json!({"conversation_id": "c-mine", "text": "It is noon."}),
+    );
+    assert_eq!(sent["result"]["isError"], false, "{sent}");
+    assert_eq!(
+        sent["result"]["structuredContent"]["text"],
+        "bob: It is noon."
+    );
+    assert_eq!(host.lock().unwrap().sent[0]["text"], "bob: It is noon.");
+    alice.stop();
+    bob.stop();
 }
 
 #[test]

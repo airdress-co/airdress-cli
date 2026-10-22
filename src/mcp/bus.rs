@@ -31,6 +31,7 @@ use crate::agent_bus::state::{bus_dir, Delivery, Pins, Policies};
 use crate::agent_bus::verify::{self, Known};
 use crate::log_err::LogErr as _;
 use crate::mcp::channel_push;
+use crate::mcp::names;
 use crate::mcp::session::{Session, Target};
 
 /// Heartbeat interval when the operator does not say.
@@ -208,6 +209,77 @@ async fn link(session: &Arc<Session>, fqdn: &str, create: bool) -> Result<Option
     Ok(Some(l))
 }
 
+/// A session id, or the session a name belongs to (SPEC-166 design §6):
+/// a UUID is used as it is; otherwise a leading `@` is dropped and the
+/// value is matched against live sessions, first labels that start
+/// `@<name> · `, then labels equal to it. One match is the answer. None is
+/// `no_session_named` with the live names; several is
+/// `session_name_ambiguous` with each label and id.
+async fn session_by_name_or_id(api: &BusClient, to: &str) -> Result<String> {
+    if uuid::Uuid::parse_str(to).is_ok() {
+        return Ok(to.to_owned());
+    }
+    let want = to.trim().trim_start_matches('@').to_ascii_lowercase();
+    let v = api.get("/sessions").await?;
+    let rows = v["sessions"].as_array().cloned().unwrap_or_default();
+    let label = |r: &Value| r["label"].as_str().unwrap_or_default().to_owned();
+    let mut hits: Vec<&Value> = rows
+        .iter()
+        .filter(|r| r["label"].as_str().and_then(names::from_label).as_deref() == Some(&*want))
+        .collect();
+    if hits.is_empty() {
+        hits = rows
+            .iter()
+            .filter(|r| label(r).eq_ignore_ascii_case(to.trim()))
+            .collect();
+    }
+    match hits.as_slice() {
+        [r] => r["id"]
+            .as_str()
+            .map(str::to_owned)
+            .context("the bus listed a session without an id"),
+        [] => {
+            let mut known: Vec<String> = rows
+                .iter()
+                .filter_map(|r| r["label"].as_str().and_then(names::from_label))
+                .collect();
+            known.sort_unstable();
+            known.dedup();
+            bail!(
+                "no_session_named: no live session is named {want}; named sessions: {}",
+                if known.is_empty() {
+                    "none".to_owned()
+                } else {
+                    known.join(", ")
+                }
+            )
+        }
+        many => {
+            let each: Vec<String> = many
+                .iter()
+                .map(|r| format!("{} ({})", label(r), r["id"].as_str().unwrap_or("?")))
+                .collect();
+            bail!(
+                "session_name_ambiguous: {} live sessions match {want}: {}; use a session id",
+                many.len(),
+                each.join(", ")
+            )
+        }
+    }
+}
+
+/// The bus's live sessions on `fqdn`, as the operator lists them.
+pub(crate) async fn sessions_listing(session: &Arc<Session>, fqdn: &str) -> Result<Value> {
+    bus_client(session, fqdn).await?.get("/sessions").await
+}
+
+/// This server's bus session id on `fqdn`, if it has joined.
+pub(crate) async fn own_session_id(session: &Arc<Session>, fqdn: &str) -> Option<String> {
+    let l = session.bus_links.lock().await.get(fqdn).cloned()?;
+    l.is_registered().then_some(())?;
+    Some(l.session_id().await)
+}
+
 /// Register (or re-register, under a fresh id) this server's session.
 async fn register(session: &Arc<Session>, l: &Arc<Link>) -> Result<()> {
     let enrollment = l.signer.enrollment().await?;
@@ -216,6 +288,34 @@ async fn register(session: &Arc<Session>, l: &Arc<Link>) -> Result<()> {
     // An id is registered once; a re-registration is a new session.
     if l.used.swap(true, Ordering::SeqCst) {
         *id = uuid::Uuid::new_v4().to_string();
+    } else {
+        // The first registration settles the name: one a live session
+        // already holds gets the first free suffix, and the person is
+        // told. A re-registration keeps it (its old session may still be
+        // listed under the same name until it lapses).
+        let api = bus_client(session, &l.fqdn).await?;
+        if let Ok(v) = api.get("/sessions").await {
+            let taken: Vec<String> = v["sessions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|r| r["label"].as_str().and_then(names::from_label))
+                .collect();
+            let want = session.name();
+            let got = names::free(&want, &taken);
+            if got != want {
+                let why = format!("{want} was taken on this airdress, so this session is {got}");
+                session.rename(got.clone(), why.clone());
+                session.bus_notices.lock().await.push(why.clone());
+                session
+                    .notify(json!({
+                        "jsonrpc": "2.0",
+                        "method": channel_push::METHOD,
+                        "params": {"content": why, "meta": {"kind": "notice"}},
+                    }))
+                    .await;
+            }
+        }
     }
     let mut body = json!({
         "id": *id,
@@ -918,6 +1018,9 @@ pub async fn call(
                 for row in list.iter_mut() {
                     let you = me.as_deref() == row["id"].as_str();
                     row["you"] = json!(you);
+                    if let Some(n) = row["label"].as_str().and_then(names::from_label) {
+                        row["name"] = json!(n);
+                    }
                     row["writes"] = json!(if row["attestation"] == "operator" {
                         "operator-attested"
                     } else {
@@ -1124,6 +1227,8 @@ async fn write_tool(
                     if s(args, "fence").is_some() {
                         bail!("a direct message cannot be fenced; post to the claim's topic");
                     }
+                    let to = &session_by_name_or_id(&bus_client(session, &target.fqdn).await?, to)
+                        .await?;
                     let v = write(
                         session,
                         &l,
@@ -1292,7 +1397,11 @@ async fn write_tool(
                 (
                     "handoff",
                     "claim.handoff",
-                    json!({"token": token, "to_session": need(args, "to_session")?}),
+                    json!({"token": token, "to_session": session_by_name_or_id(
+                        &bus_client(session, &target.fqdn).await?,
+                        need(args, "to_session")?,
+                    )
+                    .await?}),
                 )
             };
             if name == "bus_handoff" {

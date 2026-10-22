@@ -304,6 +304,9 @@ async fn whoami(session: &Arc<Session>, args: &Value) -> Result<Outcome> {
     );
     out.insert("device_label".into(), json!(session.device_label()));
     out.insert("bus_session_label".into(), json!(session.session_label()));
+    for (k, v) in session_name_fields(session) {
+        out.insert(k, v);
+    }
     out.insert("delivery".into(), json!(crate::mcp::bus::DELIVERY));
     out.insert("bus".into(), crate::mcp::bus::report(session).await);
 
@@ -412,7 +415,22 @@ async fn airdress_status(session: &Arc<Session>, target: &Target) -> Result<Outc
             Err(e) => json!({"reachable": false, "why": sentence_for(&e)}),
         },
         "capabilities": serde_json::to_value(caps)?,
+        "session_name": session.name(),
+        "name_source": session.opts.session_name.source.as_str(),
+        "name_note": session.name_note(),
     })))
+}
+
+/// `session_name`, `name_source` and `name_note` (SPEC-166 design §4.3).
+fn session_name_fields(session: &Session) -> Vec<(String, Value)> {
+    vec![
+        ("session_name".into(), json!(session.name())),
+        (
+            "name_source".into(),
+            json!(session.opts.session_name.source.as_str()),
+        ),
+        ("name_note".into(), json!(session.name_note())),
+    ]
 }
 
 // ---------------------------------------------------------------------

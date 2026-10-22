@@ -50,6 +50,8 @@ struct Bus {
     acks: Vec<(String, Value)>,
     ended: Vec<String>,
     sessions: Vec<Value>,
+    /// Direct messages: (to session, body).
+    direct: Vec<(String, Value)>,
 }
 
 /// A peer's device-signed message.
@@ -287,6 +289,21 @@ fn spawn_operator(bus: Arc<Mutex<Bus>>, ours: SigningKey) -> u16 {
                         bus.lock().unwrap().acks.push((id, req.body.clone()));
                         respond(&mut stream, 201, &json!({"state": req.body["state"]}));
                     }
+                    ("POST", _, r) if r.starts_with("/sessions/") && r.ends_with("/messages") => {
+                        let to = r
+                            .trim_start_matches("/sessions/")
+                            .trim_end_matches("/messages")
+                            .to_owned();
+                        check_write(&req.body, &ours);
+                        verify_signature(
+                            "message.post",
+                            &format!("session:{to}"),
+                            &req.body,
+                            &ours,
+                        );
+                        bus.lock().unwrap().direct.push((to, req.body.clone()));
+                        respond(&mut stream, 201, &json!({"id": "d-1", "seq": 1}));
+                    }
                     ("DELETE", _, r) if r.starts_with("/sessions/") => {
                         let id = r.trim_start_matches("/sessions/").to_owned();
                         verify_signature("session.end", &id, &req.body, &ours);
@@ -440,10 +457,10 @@ fn pushed_items_are_labelled_and_reads_lose_nothing() {
         .unwrap()
         .items
         .push(peer_message(&peer, "m1", 1, "hello from the peer"));
-    bus.lock()
-        .unwrap()
-        .sessions
-        .push(session_row(PEER_SESSION, PEER_ENROLLMENT, &peer, &root));
+    // The peer already holds the name this session is configured with.
+    let mut peer_row = session_row(PEER_SESSION, PEER_ENROLLMENT, &peer, &root);
+    peer_row["label"] = json!("@tester · peer-box · other-repo");
+    bus.lock().unwrap().sessions.push(peer_row);
 
     let op_port = spawn_operator(Arc::clone(&bus), ours.clone());
     let hub_port = spawn_hub();
@@ -470,12 +487,13 @@ fn pushed_items_are_labelled_and_reads_lose_nothing() {
             "true",
             "--bus-topics",
             "general",
-            "--bus-label",
-            "box · repo",
+            "--session-name",
+            "tester",
             "--state-dir",
         ])
         .arg(&state)
         .env("HOME", home.path())
+        .env_remove("AIRDRESS_SESSION_NAME")
         .env("AIRDRESS_OPERATOR_URL", format!("http://{operator_host}"))
         .env("NO_PROXY", "127.0.0.1,localhost")
         .env("no_proxy", "127.0.0.1,localhost")
@@ -521,7 +539,10 @@ fn pushed_items_are_labelled_and_reads_lose_nothing() {
     });
     let reg = bus.lock().unwrap().registered[0].clone();
     assert_eq!(reg["harness"], "test-harness");
-    assert_eq!(reg["label"], "box · repo");
+    // The name leads the label, so other sessions can address it; the
+    // peer holds `tester`, so this session takes the first free suffix.
+    let label = reg["label"].as_str().unwrap();
+    assert!(label.starts_with("@tester-2 · "), "{label}");
     assert_eq!(reg["topics"], json!(["general"]));
     let ours_id = reg["id"].as_str().unwrap().to_owned();
     {
@@ -596,6 +617,46 @@ fn pushed_items_are_labelled_and_reads_lose_nothing() {
     let who = &who["result"]["structuredContent"];
     assert!(who["delivery"].as_str().unwrap().contains("bus_read"));
     assert_eq!(who["bus"]["sessions"][0]["registered"], true);
+    assert_eq!(who["session_name"], "tester-2", "{who}");
+    assert!(
+        who["name_note"]
+            .as_str()
+            .unwrap()
+            .contains("tester was taken"),
+        "{who}"
+    );
+
+    // A direct message by name reaches the session that holds it.
+    let direct = server.call(
+        13,
+        "tools/call",
+        json!({"name": "bus_post", "arguments": {"to_session": "@tester", "content": "hi"}}),
+    );
+    assert_eq!(direct["result"]["isError"], false, "{direct}");
+    assert_eq!(bus.lock().unwrap().direct[0].0, PEER_SESSION);
+    let listed = server.call(
+        14,
+        "tools/call",
+        json!({"name": "bus_sessions", "arguments": {}}),
+    );
+    assert_eq!(
+        listed["result"]["structuredContent"]["sessions"][0]["name"],
+        "tester"
+    );
+    let unknown = server.call(
+        15,
+        "tools/call",
+        json!({"name": "bus_post", "arguments": {"to_session": "nobody", "content": "hi"}}),
+    );
+    assert_eq!(unknown["result"]["isError"], true, "{unknown}");
+    assert!(
+        unknown.to_string().contains("no_session_named"),
+        "{unknown}"
+    );
+    assert!(
+        unknown.to_string().contains("named sessions: tester"),
+        "{unknown}"
+    );
 
     // Delivered once per peer message: m1 on push, m3 on read; never m2.
     let acked: Vec<String> = bus

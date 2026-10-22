@@ -20,6 +20,8 @@ use serde_json::{json, Map, Value};
 
 use crate::agent_bus::socket;
 use crate::mcp::channel_push::{self, meta_key_ok};
+use crate::mcp::names::{self, Addressed};
+use crate::mcp::names_live;
 use crate::mcp::session::{Session, Target};
 
 /// How long one `chat.wait` may be held by the host.
@@ -98,12 +100,27 @@ pub async fn call(
             )
             .await?;
             let pushed = session.chat_pushed_through(fqdn).await;
+            let me = session.name();
             if let Some(items) = v["messages"].as_array_mut() {
-                for m in items {
+                for m in items.iter_mut() {
                     let seq = m["seq"].as_i64().unwrap_or(i64::MAX);
                     if seq <= pushed {
                         m["already_pushed"] = json!(true);
                     }
+                }
+                // Nothing is hidden from a read: a message for another
+                // session is returned, and says so (design §5.4).
+                for m in items.iter_mut() {
+                    let mentioned =
+                        names::local_names(m["text"].as_str().unwrap_or_default(), fqdn);
+                    let live = if mentioned.is_empty() || mentioned.contains(&me) {
+                        None
+                    } else {
+                        names_live::get(session, fqdn, &mentioned).await
+                    };
+                    let a = names::route(&me, &mentioned, live.as_ref().map(|l| &l.others[..]));
+                    m["mentions"] = json!(mentioned);
+                    m["addressed_to_this_session"] = json!(a != Addressed::Elsewhere);
                 }
             }
             Ok(json!({
@@ -119,22 +136,44 @@ pub async fn call(
             if text.trim().is_empty() {
                 bail!("an empty message is not sent");
             }
+            // The conversation sees only the device, so the words say
+            // which of its sessions wrote them.
+            let text = signed_text(&session.name(), text);
+            let text = text.as_str();
             let v = ask(
                 session,
                 fqdn,
                 json!({"op": "chat.send", "conversation_id": conversation, "text": text}),
             )
             .await?;
-            Ok(
-                json!({"message_id": v["message_id"], "conversation_id": conversation, "sent": true}),
-            )
+            Ok(json!({
+                "message_id": v["message_id"],
+                "conversation_id": conversation,
+                "sent": true,
+                "text": text,
+            }))
         }
         other => bail!("no chat tool named {other}"),
     }
 }
 
+/// `<name>: <text>`, unless the text already starts that way (in any
+/// case).
+pub fn signed_text(name: &str, text: &str) -> String {
+    let prefix = format!("{name}: ");
+    let starts = text
+        .get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(&prefix));
+    if starts {
+        text.to_owned()
+    } else {
+        format!("{prefix}{text}")
+    }
+}
+
 /// The channel notification for one chat message (FR-34): the words as
-/// written, and who, where and which lane in the meta.
+/// written, and who, where and which lane in the meta. `addressed` is
+/// `you` when the message mentions this session by name, else absent.
 pub fn notification(m: &Value) -> Value {
     let mut meta = Map::new();
     let mut put = |k: &str, v: Option<String>| {
@@ -182,11 +221,40 @@ pub async fn start(session: Arc<Session>) {
         match ask(&session, &fqdn, req).await {
             Ok(v) => {
                 idle = IDLE_MIN;
+                let me = session.name();
                 for m in v["messages"].as_array().into_iter().flatten() {
                     if m["from_self"] == json!(true) {
                         continue;
                     }
-                    session.notify(notification(m)).await;
+                    // Every session on this machine receives every message
+                    // from the one device host; a name decides which of
+                    // them is interrupted (design §5.3). A message for
+                    // another live session is not pushed here; `chat_read`
+                    // still returns it.
+                    let mentioned =
+                        names::local_names(m["text"].as_str().unwrap_or_default(), &fqdn);
+                    let live = if mentioned.is_empty() || mentioned.contains(&me) {
+                        None
+                    } else {
+                        names_live::get(&session, &fqdn, &mentioned).await
+                    };
+                    let a = names::route(&me, &mentioned, live.as_ref().map(|l| &l.others[..]));
+                    if a == Addressed::Elsewhere {
+                        continue;
+                    }
+                    let mut n = notification(m);
+                    let meta = &mut n["params"]["meta"];
+                    meta["session_name"] = json!(me);
+                    meta["addressed"] = json!(a.as_str());
+                    if !mentioned.is_empty() {
+                        meta["mentions"] = json!(mentioned.join(","));
+                    }
+                    if a == Addressed::Unmatched {
+                        let here = live.map(|l| l.here).unwrap_or_else(|| vec![me.clone()]);
+                        meta["answer_unmatched"] =
+                            json!(names::answers_unmatched(&me, &here).to_string());
+                    }
+                    session.notify(n).await;
                 }
                 if let Some(head) = v["head"].as_i64() {
                     after = Some(head);

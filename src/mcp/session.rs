@@ -53,6 +53,9 @@ pub struct ServeOpts {
     pub bus_topics: Vec<String>,
     /// Session label. Empty means `<host> · <repo>`.
     pub bus_label: Option<String>,
+    /// The session's name, where it came from, and why a higher-ranked
+    /// value was passed over; see [`crate::mcp::names`].
+    pub session_name: crate::mcp::names::Resolved,
     /// Where the CLI's files are, resolved by the entry point. `None` when
     /// there was no home directory to find: the server still starts and
     /// answers, and a tool that needs the profile says why it cannot.
@@ -72,6 +75,11 @@ impl Default for ServeOpts {
             bus: false,
             bus_topics: vec!["general".into()],
             bus_label: None,
+            session_name: crate::mcp::names::Resolved {
+                name: crate::mcp::names::random(),
+                source: crate::mcp::names::Source::Random,
+                note: None,
+            },
             paths: None,
         }
     }
@@ -162,6 +170,14 @@ pub struct Session {
     chat_pushed: Mutex<HashMap<String, i64>>,
     /// Where server-initiated notifications go: stdout, once serving.
     notifier: Mutex<Option<tokio::sync::mpsc::Sender<serde_json::Value>>>,
+    /// This session's name. Starts as configured (or random) and moves
+    /// only when the bus says another live session already holds it.
+    name: std::sync::RwLock<String>,
+    /// What a person should know about the name: a configured value that
+    /// was passed over, or a clash that moved it.
+    name_note: std::sync::RwLock<Option<String>>,
+    /// The names live on the bus, and when they were read.
+    live_names: Mutex<Option<(std::time::Instant, crate::mcp::names_live::LiveNames)>>,
 }
 
 impl std::fmt::Debug for Session {
@@ -172,6 +188,8 @@ impl std::fmt::Debug for Session {
 
 impl Session {
     pub fn new(opts: ServeOpts) -> Self {
+        let opts_name = opts.session_name.name.clone();
+        let opts_note = opts.session_name.note.clone();
         Self {
             opts,
             launch: LaunchReport::from_env(),
@@ -184,6 +202,49 @@ impl Session {
             bus_notices: Mutex::new(Vec::new()),
             chat_pushed: Mutex::new(HashMap::new()),
             notifier: Mutex::new(None),
+            name: std::sync::RwLock::new(opts_name),
+            name_note: std::sync::RwLock::new(opts_note),
+            live_names: Mutex::new(None),
+        }
+    }
+
+    /// Why the name is not the one configured, if it is not.
+    pub fn name_note(&self) -> Option<String> {
+        self.name_note.read().ok().and_then(|n| n.clone())
+    }
+
+    /// The live names as last read, if read within `fresh`.
+    pub async fn cached_live_names(
+        &self,
+        fresh: std::time::Duration,
+    ) -> Option<crate::mcp::names_live::LiveNames> {
+        let g = self.live_names.lock().await;
+        g.as_ref()
+            .filter(|(at, _)| at.elapsed() < fresh)
+            .map(|(_, l)| l.clone())
+    }
+
+    /// Remember the live names just read.
+    pub async fn set_live_names(&self, l: crate::mcp::names_live::LiveNames) {
+        *self.live_names.lock().await = Some((std::time::Instant::now(), l));
+    }
+
+    /// The name a person writes after `@` to reach this session.
+    pub fn name(&self) -> String {
+        self.name.read().map(|n| n.clone()).unwrap_or_default()
+    }
+
+    /// Take another name (the configured one was held by a live session),
+    /// and say why.
+    pub fn rename(&self, name: String, why: String) {
+        if let Ok(mut n) = self.name.write() {
+            *n = name;
+        }
+        if let Ok(mut n) = self.name_note.write() {
+            *n = Some(match n.take() {
+                Some(earlier) => format!("{earlier}; {why}"),
+                None => why,
+            });
         }
     }
 
@@ -425,7 +486,10 @@ impl Session {
         self.opts.device_label_template.replace("{host}", &host)
     }
 
-    /// The bus session label: the user's, else `<host> · <repo>`.
+    /// The bus session label: the user's, as given, else
+    /// `@<name> · <host> · <repo>`. The name leads so that other sessions
+    /// can find it in a listing (`names::from_label`); a session with its
+    /// own label is addressable by that whole label only.
     pub fn session_label(&self) -> String {
         if let Some(l) = self
             .opts
@@ -436,7 +500,7 @@ impl Session {
         {
             return l.to_owned();
         }
-        format!("{} · {}", hostname(), repo_name())
+        format!("@{} · {} · {}", self.name(), hostname(), repo_name())
     }
 }
 

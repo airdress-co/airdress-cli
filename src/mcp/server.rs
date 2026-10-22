@@ -228,6 +228,21 @@ async fn handle(session: &Arc<Session>, request: Incoming) -> Option<Value> {
     }
 }
 
+/// What this session's name means, said once at start. The name is the
+/// local server's own (SPEC-166 phase A), so it is said here rather than
+/// in the shared catalogue's instructions.
+fn naming(name: &str) -> String {
+    format!(
+        "This session is named @{name}. A chat message that chat_read marks \
+         addressed_to_this_session: false was meant for another session; it is \
+         context, do not answer it. A pushed message with addressed=unmatched \
+         names nobody here: if answer_unmatched is true, say so in one line, \
+         otherwise stay silent. chat_send prefixes your words with \"{name}: \" \
+         so the people in the conversation can tell this machine's sessions \
+         apart. bus_post's to_session takes a session name as well as an id."
+    )
+}
+
 fn initialize(session: &Arc<Session>) -> Value {
     json!({
         "protocolVersion": PROTOCOL_VERSION,
@@ -244,7 +259,7 @@ fn initialize(session: &Arc<Session>) -> Value {
             "title": "Airdress",
             "version": crate::build_version(),
         },
-        "instructions": catalogue::INSTRUCTIONS,
+        "instructions": format!("{} {}", catalogue::INSTRUCTIONS, naming(&session.name())),
         "_meta": {
             // Reported, not trusted: it is this process's own account of
             // how it was started, and `whoami` says the same thing.

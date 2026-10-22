@@ -21,6 +21,8 @@ pub mod capabilities;
 pub mod channel_push;
 pub mod chat;
 pub mod jsonrpc;
+pub mod names;
+pub mod names_live;
 pub mod probe;
 pub mod reexport;
 pub mod server;
@@ -101,6 +103,16 @@ pub struct ServeArgs {
     /// Bus session label. Empty: `<host> · <repo>`.
     #[arg(long, default_value = "")]
     pub bus_label: String,
+    /// The name a person writes after `@` to reach this session. Beats
+    /// `AIRDRESS_SESSION_NAME` and the plugin's setting. Empty: unset.
+    #[arg(long, default_value = "")]
+    pub session_name: String,
+    /// The plugin's `session_name` setting. Ranked below
+    /// `AIRDRESS_SESSION_NAME`, which names one launch, because every
+    /// session of the user shares it. Empty: unset; all unset gives a
+    /// random name.
+    #[arg(long, default_value = "")]
+    pub configured_session_name: String,
 }
 
 impl ServeArgs {
@@ -130,6 +142,14 @@ impl ServeArgs {
                 .map(str::to_owned)
                 .collect(),
             bus_label: non_empty(self.bus_label),
+            session_name: {
+                let env = std::env::var(names::ENV).ok();
+                names::resolve(
+                    &self.session_name,
+                    env.as_deref(),
+                    &self.configured_session_name,
+                )
+            },
             paths,
         })
     }
@@ -190,6 +210,8 @@ mod tests {
             bus: String::new(),
             bus_topics: "general".into(),
             bus_label: String::new(),
+            session_name: String::new(),
+            configured_session_name: String::new(),
         }
     }
 
@@ -212,6 +234,28 @@ mod tests {
         };
         let e = bad.into_opts(None).unwrap_err().to_string();
         assert!(e.contains("--read-only"), "{e}");
+    }
+
+    #[test]
+    fn the_plugin_setting_names_the_session_and_a_bad_one_falls_through() {
+        // Assumes AIRDRESS_SESSION_NAME is unset in the test environment;
+        // `names::resolve` is tested with it set.
+        let opts = ServeArgs {
+            configured_session_name: "@Bob".into(),
+            ..args()
+        }
+        .into_opts(None)
+        .unwrap();
+        assert_eq!(opts.session_name.name, "bob");
+        assert_eq!(opts.session_name.source, names::Source::Plugin);
+        let bad = ServeArgs {
+            session_name: "bob smith".into(),
+            ..args()
+        }
+        .into_opts(None)
+        .unwrap();
+        assert_eq!(bad.session_name.source, names::Source::Random);
+        assert!(bad.session_name.note.unwrap().contains("--session-name"));
     }
 
     #[test]
