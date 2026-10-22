@@ -200,7 +200,7 @@ async fn link(session: &Arc<Session>, fqdn: &str, create: bool) -> Result<Option
         }
     };
     drop(links);
-    register(session, &l).await?;
+    register(session, &l, None).await?;
     let generation = l.generation.fetch_add(1, Ordering::SeqCst) + 1;
     let mut task = tokio::task::JoinSet::new();
     task.spawn(run(Arc::clone(session), Arc::clone(&l), generation));
@@ -300,10 +300,19 @@ async fn renamed(session: &Arc<Session>, got: String, why: String) {
 }
 
 /// Register (or re-register, under a fresh id) this server's session.
-async fn register(session: &Arc<Session>, l: &Arc<Link>) -> Result<()> {
+///
+/// `stale` is the session the operator just said it no longer knows. The
+/// stream, a write and the heartbeat can each hear that about the same
+/// session; whichever comes second finds the id already replaced and does
+/// nothing, rather than registering a duplicate that lingers until it
+/// expires (seen on VM2 after an operator restart, 2026-10-22).
+async fn register(session: &Arc<Session>, l: &Arc<Link>, stale: Option<&str>) -> Result<()> {
     let enrollment = l.signer.enrollment().await?;
     *l.enrollment.lock().await = enrollment.clone();
     let mut id = l.session.lock().await;
+    if stale.is_some_and(|s| *id != s) {
+        return Ok(());
+    }
     let named = operator_names(&l.info);
     // An id is registered once; a re-registration is a new session.
     if l.used.swap(true, Ordering::SeqCst) {
@@ -451,7 +460,7 @@ async fn write(
                         )
                     }) =>
             {
-                register(session, l).await?;
+                register(session, l, Some(&sid)).await?;
             }
             other => return other,
         }
@@ -659,7 +668,7 @@ async fn stream(session: Arc<Session>, l: Arc<Link>, generation: u64) {
                         if let Some(id) = ev.id.as_deref().and_then(|i| i.parse().ok()) {
                             last = Some(id);
                         }
-                        if handle_event(&session, &l, &ev).await == Flow::Stop {
+                        if handle_event(&session, &l, &sid, &ev).await == Flow::Stop {
                             return;
                         }
                     }
@@ -669,7 +678,7 @@ async fn stream(session: Arc<Session>, l: Arc<Link>, generation: u64) {
                 if let Some(r) = client::refusal(&e) {
                     match r.code.as_str() {
                         "agent_session_expired" | "agent_session_unknown" => {
-                            register(&session, &l)
+                            register(&session, &l, Some(&sid))
                                 .await
                                 .log_warn("registering with the bus again");
                         }
@@ -696,7 +705,7 @@ enum Flow {
     Stop,
 }
 
-async fn handle_event(session: &Arc<Session>, l: &Arc<Link>, ev: &sse::Event) -> Flow {
+async fn handle_event(session: &Arc<Session>, l: &Arc<Link>, sid: &str, ev: &sse::Event) -> Flow {
     match ev.event.as_str() {
         "session" => Flow::Go,
         "session_ended" => {
@@ -705,7 +714,7 @@ async fn handle_event(session: &Arc<Session>, l: &Arc<Link>, ev: &sse::Event) ->
                 .and_then(|v| v["reason"].as_str().map(str::to_owned))
                 .unwrap_or_default();
             if reason == "expired" {
-                register(session, l)
+                register(session, l, Some(sid))
                     .await
                     .log_warn("registering with the bus again");
                 return Flow::Go;

@@ -55,6 +55,9 @@ struct Bus {
     /// Refuse the next direct message as `agent_session_expired`, as an
     /// operator does once it has forgotten a session.
     expire_next_write: bool,
+    /// A session the operator has forgotten: its event stream is refused
+    /// `agent_session_unknown`, so the stream notices too.
+    forgotten: Option<String>,
     /// An operator that keeps session names (SPEC-166 phase B): `/info`
     /// says so, a register's `name` is settled here, and posts by name
     /// arrive on `/messages`.
@@ -245,6 +248,15 @@ fn spawn_operator(bus: Arc<Mutex<Bus>>, ours: SigningKey) -> u16 {
                     }
                     ("GET", _, r) if r.ends_with("/events") => {
                         let b = bus.lock().unwrap();
+                        if b.forgotten.as_deref().is_some_and(|f| r.contains(f)) {
+                            drop(b);
+                            respond(
+                                &mut stream,
+                                404,
+                                &json!({"error": {"code": "agent_session_unknown", "message": "x"}}),
+                            );
+                            return;
+                        }
                         if !b.sse {
                             drop(b);
                             respond(
@@ -350,6 +362,10 @@ fn spawn_operator(bus: Arc<Mutex<Bus>>, ours: SigningKey) -> u16 {
                             &ours,
                         );
                         if std::mem::take(&mut bus.lock().unwrap().expire_next_write) {
+                            // Answered late, as a write in flight across an
+                            // operator restart is: by then the stream has
+                            // noticed and registered again.
+                            std::thread::sleep(Duration::from_millis(3000));
                             respond(
                                 &mut stream,
                                 404,
@@ -726,6 +742,8 @@ fn pushed_items_are_labelled_and_reads_lose_nothing() {
             .unwrap();
         row["label"] = json!(label);
         b.expire_next_write = true;
+        // The stream hears it too, at about the same moment.
+        b.forgotten = Some(ours_id.clone());
     }
     let after_expiry = server.call(
         16,
@@ -733,8 +751,11 @@ fn pushed_items_are_labelled_and_reads_lose_nothing() {
         json!({"name": "bus_post", "arguments": {"to_session": "@tester", "content": "again"}}),
     );
     assert_eq!(after_expiry["result"]["isError"], false, "{after_expiry}");
+    // Both the write and the stream heard the session was forgotten; one
+    // registration answers both, and no duplicate is left behind.
+    std::thread::sleep(Duration::from_millis(1500));
     let again = bus.lock().unwrap().registered.clone();
-    assert_eq!(again.len(), 2, "registered again: {again:?}");
+    assert_eq!(again.len(), 2, "registered again, once: {again:?}");
     assert_ne!(
         again[1]["id"], again[0]["id"],
         "a re-registration is a new session"
