@@ -89,8 +89,13 @@ pub fn notification(item: &Value, verdict: &Verdict) -> Value {
     if verdict.signed_by == "operator" {
         content = format!("[operator-attested] {content}");
     }
-    if !verdict.valid {
-        content = format!("[signature invalid] {content}");
+    match (&verdict.key_change, verdict.valid) {
+        (_, true) => {}
+        (Some(c), false) if c.enrollment.is_none() => {
+            content = format!("[root key changed] {content}");
+        }
+        (Some(_), false) => content = format!("[device key changed] {content}"),
+        (None, false) => content = format!("[signature invalid] {content}"),
     }
     let stream = item["stream"].as_str().unwrap_or_default();
     let mut meta = Map::new();
@@ -115,6 +120,13 @@ pub fn notification(item: &Value, verdict: &Verdict) -> Value {
     put("data_schema", s("data_schema"));
     put("signed_by", Some(verdict.signed_by.clone()));
     put("signature", Some(verdict.word().to_owned()));
+    put(
+        "signature_valid",
+        verdict
+            .key_change
+            .as_ref()
+            .map(|c| c.signature_valid.to_string()),
+    );
     put("signature_notes", Some(verdict.notes.join("; ")));
     json!({
         "jsonrpc": "2.0",
@@ -132,6 +144,7 @@ mod tests {
             signed_by: signed_by.into(),
             valid,
             notes: vec![],
+            key_change: None,
         }
     }
 
@@ -182,6 +195,32 @@ mod tests {
             .starts_with("[operator-attested] "));
         let n = notification(&item(), &verdict("device", false));
         assert_eq!(n["params"]["meta"]["signature"], "invalid");
+    }
+
+    #[test]
+    fn a_changed_root_is_said_apart_from_a_bad_signature() {
+        let mut v = verdict("device", false);
+        v.key_change = Some(crate::agent_bus::verify::KeyChange {
+            enrollment: None,
+            pinned: "SHA256:old".into(),
+            current: "SHA256:new".into(),
+            signature_valid: true,
+        });
+        let n = notification(&item(), &v);
+        assert!(n["params"]["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("[root key changed] "));
+        assert_eq!(n["params"]["meta"]["signature"], "root_changed");
+        assert_eq!(n["params"]["meta"]["signature_valid"], "true");
+        v.key_change.as_mut().unwrap().enrollment = Some("e1".into());
+        let n = notification(&item(), &v);
+        assert_eq!(n["params"]["meta"]["signature"], "device_key_changed");
+        assert!(
+            notification(&item(), &verdict("device", false))["params"]["meta"]
+                .get("signature_valid")
+                .is_none()
+        );
     }
 
     #[test]

@@ -83,6 +83,19 @@ enum OutputFormat {
     Json,
 }
 
+/// `airdress agent …`.
+#[derive(Debug, Subcommand)]
+enum AgentCli {
+    /// The agent bus as this machine reads it.
+    Bus {
+        #[command(subcommand)]
+        command: airdress::agent_bus::repin::BusCommands,
+    },
+    /// Anything else moved to the `airdress-agent` binary.
+    #[command(external_subcommand)]
+    Moved(Vec<String>),
+}
+
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Manage authentication
@@ -261,11 +274,11 @@ enum Commands {
         #[command(flatten)]
         args: shell_client::ShellArgs,
     },
-    /// Moved: agent devices are the `airdress-agent` binary.
-    #[command(hide = true)]
+    /// The agent bus as this machine reads it (`agent bus repin`). Agent
+    /// devices themselves are the `airdress-agent` binary.
     Agent {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
+        #[command(subcommand)]
+        command: Option<AgentCli>,
     },
     /// Agent chat, from the owner's side: list the agent devices, assign a
     /// conversation to one (a phone of yours in it then adds the device),
@@ -966,14 +979,19 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 std::process::exit(code);
             }
         }
+        Commands::Agent {
+            command: Some(AgentCli::Bus { command }),
+        } => airdress::agent_bus::repin::run(command, &paths, use_json)?,
         // `airdress` carries no MLS; the agent device is its own binary.
-        Commands::Agent { args } => anyhow::bail!(
+        Commands::Agent {
+            command: Some(AgentCli::Moved(args)),
+        } => anyhow::bail!(
             "agent devices moved to the `airdress-agent` binary: run `airdress-agent {}`",
-            if args.is_empty() {
-                "--help".to_owned()
-            } else {
-                args.join(" ")
-            }
+            args.join(" ")
+        ),
+        Commands::Agent { command: None } => anyhow::bail!(
+            "agent devices moved to the `airdress-agent` binary: run `airdress-agent --help`; \
+             `airdress agent bus` is the agent bus as this machine reads it"
         ),
         Commands::Chat {
             profile,

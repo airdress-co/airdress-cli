@@ -9,6 +9,7 @@
 
 pub mod canon;
 pub mod client;
+pub mod repin;
 pub mod socket;
 pub mod sse;
 pub mod state;

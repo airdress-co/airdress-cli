@@ -685,7 +685,7 @@ async fn handle_event(session: &Arc<Session>, l: &Arc<Link>, ev: &sse::Event) ->
 }
 
 /// Verify an item, and label it for a model.
-async fn label(session: &Arc<Session>, l: &Arc<Link>, item: &mut Value) {
+async fn label(session: &Arc<Session>, l: &Arc<Link>, item: &mut Value) -> verify::Verdict {
     let sender = item["attestation"]["session"].as_str().map(str::to_owned);
     let unknown = match &sender {
         Some(s) => !l.known.lock().await.sessions.contains_key(s),
@@ -702,13 +702,17 @@ async fn label(session: &Arc<Session>, l: &Arc<Link>, item: &mut Value) {
         refresh_known(session, l).await;
     }
     let mut pins = Pins::load(&l.dir);
-    let verdict = verify::verify(item, &*l.known.lock().await, &mut pins);
+    let mut verdict = verify::verify(item, &*l.known.lock().await, &mut pins);
     pins.save(&l.dir).log_warn("saving the bus signer pins");
+    if let Ok(dir) = state_dir(session) {
+        verdict.name_state_dir(&l.fqdn, &dir);
+    }
     verdict.label_item(item);
     if item["kind"] == "policy" {
         let data = item["data"].clone();
         observe_policy(l, &data, item).await;
     }
+    verdict
 }
 
 async fn refresh_known(session: &Arc<Session>, l: &Arc<Link>) {
@@ -756,23 +760,7 @@ async fn deliver(session: &Arc<Session>, l: &Arc<Link>, mut item: Value) {
             return;
         }
     }
-    label(session, l, &mut item).await;
-    let verdict = verify::Verdict {
-        signed_by: match item["signed_by"].as_str() {
-            Some("device-signed") => "device".into(),
-            Some("operator-attested") => "operator".into(),
-            _ => "none".into(),
-        },
-        valid: item["signature"] == "valid",
-        // Why, when it did not hold (or held another way): without it a
-        // person sees "[signature invalid]" and nothing to act on.
-        notes: item["signature_notes"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|n| n.as_str().map(str::to_owned))
-            .collect(),
-    };
+    let verdict = label(session, l, &mut item).await;
     session
         .notify(channel_push::notification(&item, &verdict))
         .await;
@@ -971,8 +959,13 @@ async fn label_all(session: &Arc<Session>, l: Option<&Arc<Link>>, fqdn: &str, it
         return;
     };
     let mut pins = Pins::load(&dir);
+    let state = state_dir(session).ok();
     for item in items.iter_mut() {
-        verify::verify(item, &known, &mut pins).label_item(item);
+        let mut v = verify::verify(item, &known, &mut pins);
+        if let Some(d) = &state {
+            v.name_state_dir(fqdn, d);
+        }
+        v.label_item(item);
     }
     pins.save(&dir).log_warn("saving the bus signer pins");
 }

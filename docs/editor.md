@@ -66,6 +66,30 @@ answers one sentence saying so and where to manage the airdress. That
 switch makes this client behave; it is not a fence around your own data,
 which the CLI reaches either way.
 
+## When the airdress's root key changes
+
+The server pins the airdress's root key, and each agent device's key, the
+first time it reads a bus item. If the root is reset later, every item
+after that is labelled `signature: root_changed` (a device key that
+changed reads `device_key_changed`), with `signature_valid` saying whether
+the item is correctly signed under the new key. A legitimate reset and a
+substituted key look the same from here; a bad signature never reads
+`valid` either way. Nothing moves the pin by itself.
+
+If the reset was expected, read the new root's fingerprint on a phone that
+holds the root, then, at a terminal:
+
+```sh
+airdress agent bus repin <airdress-fqdn>                  # shows pinned and seen fingerprints
+airdress agent bus repin <airdress-fqdn> SHA256:… --state-dir <dir>
+```
+
+`--state-dir` is the directory the editor passes the server (the item's
+note names it). The fingerprint must be exactly the one seen; the command
+asks for a yes at a terminal and accepts no flag in its place, and it
+records who re-pinned and when next to the pin. `--device <enrollment>`
+does the same for one device key.
+
 ## A second binary
 
 `airdress-mcp` is the same server as `airdress mcp serve`, built on its
