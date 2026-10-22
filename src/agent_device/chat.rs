@@ -24,7 +24,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use airdress_mls_client::{
     Client, Event, InboundEnvelope, OutboundEnvelope, PinObservation, PinStore,
@@ -51,6 +51,62 @@ const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// The longest a `chat.wait` is held.
 const WAIT_MAX: Duration = Duration::from_secs(30);
+
+/// How long a session's name is held after its last wait: two of the
+/// longest waits, so one slow poll does not free it (SPEC-166 §5.2).
+const NAME_HELD: Duration = Duration::from_secs(60);
+
+/// The names of the sessions waiting on this host (SPEC-166 §5.2). Each
+/// name is held by the nonce of the session that took it, and lapses
+/// [`NAME_HELD`] after that session's last wait.
+#[derive(Debug, Default)]
+pub struct NameTable {
+    held: HashMap<String, (String, Instant)>,
+}
+
+/// What a wait carrying a name is answered.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Claim {
+    /// The name is this session's (now, or again).
+    Held,
+    /// Another live session holds it; this one could be `suggested`.
+    Taken { suggested: String },
+}
+
+impl NameTable {
+    /// `nonce`'s session waits as `name` at `now`.
+    pub fn claim(&mut self, name: &str, nonce: &str, now: Instant) -> Claim {
+        self.lapse(now);
+        match self.held.get(name) {
+            Some((holder, _)) if holder != nonce => {
+                let taken: Vec<String> = self.held.keys().cloned().collect();
+                Claim::Taken {
+                    suggested: crate::mcp::names::free(name, &taken),
+                }
+            }
+            _ => {
+                // A session that renamed itself frees its old name.
+                self.held
+                    .retain(|n, (holder, _)| holder != nonce || n == name);
+                self.held.insert(name.to_owned(), (nonce.to_owned(), now));
+                Claim::Held
+            }
+        }
+    }
+
+    /// The live names, sorted.
+    pub fn here(&mut self, now: Instant) -> Vec<String> {
+        self.lapse(now);
+        let mut v: Vec<String> = self.held.keys().cloned().collect();
+        v.sort_unstable();
+        v
+    }
+
+    fn lapse(&mut self, now: Instant) {
+        self.held
+            .retain(|_, (_, seen)| now.saturating_duration_since(*seen) < NAME_HELD);
+    }
+}
 
 /// What the host needs of the device to talk to the operator.
 #[derive(Debug, Clone)]
@@ -186,6 +242,7 @@ pub struct Chat {
     own_lane: Mutex<Option<String>>,
     conversations: Mutex<Vec<Conversation>>,
     arrived: Notify,
+    names: std::sync::Mutex<NameTable>,
 }
 
 impl std::fmt::Debug for Chat {
@@ -224,6 +281,7 @@ impl Chat {
             own_lane: Mutex::new(None),
             conversations: Mutex::new(Vec::new()),
             arrived: Notify::new(),
+            names: std::sync::Mutex::default(),
         }
     }
 
@@ -660,8 +718,37 @@ impl Chat {
                 .as_ref()
                 .map_or(0, ChatStore::head)
         };
+        // A session that says its name holds it while it waits; a wait
+        // without one (an older server) is served as before.
+        let named = req["session_name"]
+            .as_str()
+            .and_then(|n| crate::mcp::names::normalise(n).ok())
+            .zip(req["session_nonce"].as_str().map(str::to_owned));
+        if let Some((name, nonce)) = &named {
+            let claim = self
+                .names
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .claim(name, nonce, Instant::now());
+            if let Claim::Taken { suggested } = claim {
+                return json!({"ok": true, "name_taken": true, "suggested": suggested});
+            }
+        }
+        let names_here = |named: &Option<(String, String)>| {
+            let mut t = self
+                .names
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // The wait just ended counts as seen, so a long poll does not
+            // let its own name lapse.
+            if let Some((name, nonce)) = named {
+                t.claim(name, nonce, Instant::now());
+            }
+            t.here(Instant::now())
+        };
         let Some(after) = req["after"].as_i64() else {
-            return json!({"ok": true, "messages": [], "head": head().await});
+            return json!({"ok": true, "messages": [], "head": head().await,
+                          "names_here": names_here(&named)});
         };
         let timeout =
             Duration::from_millis(req["timeout_ms"].as_u64().unwrap_or(25_000)).min(WAIT_MAX);
@@ -673,6 +760,7 @@ impl Chat {
         }
         let mut v = self.read(&json!({"after": after, "limit": 100})).await;
         v["head"] = json!(head().await);
+        v["names_here"] = json!(names_here(&named));
         v
     }
 
@@ -762,6 +850,29 @@ impl Chat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_is_held_by_one_session_and_lapses_after_its_last_wait() {
+        let t0 = Instant::now();
+        let mut t = NameTable::default();
+        assert_eq!(t.claim("bob", "n-1", t0), Claim::Held);
+        assert_eq!(t.claim("bob", "n-1", t0), Claim::Held, "its own again");
+        assert_eq!(
+            t.claim("bob", "n-2", t0),
+            Claim::Taken {
+                suggested: "bob-2".into()
+            }
+        );
+        assert_eq!(t.claim("dave", "n-2", t0), Claim::Held);
+        assert_eq!(t.here(t0), ["bob", "dave"]);
+        // Renaming frees the old name.
+        assert_eq!(t.claim("dave-x", "n-2", t0), Claim::Held);
+        assert_eq!(t.here(t0), ["bob", "dave-x"]);
+        // Two long waits without a word, and the name is free.
+        let later = t0 + NAME_HELD;
+        assert_eq!(t.here(later), Vec::<String>::new());
+        assert_eq!(t.claim("bob", "n-3", later), Claim::Held);
+    }
 
     #[test]
     fn text_of_blocks_reads_text_and_code_and_names_the_rest() {

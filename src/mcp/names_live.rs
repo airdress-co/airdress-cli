@@ -61,6 +61,30 @@ pub fn from_listing(listing: &Value, me: Option<&str>, my_name: &str) -> LiveNam
     out
 }
 
+/// The bus's view joined with the device host's `names_here`: the host
+/// knows every session waiting on this machine, the bus also the ones
+/// elsewhere. With neither, nothing is known and routing pushes.
+pub fn with_host(bus: Option<LiveNames>, host: Option<&[String]>, me: &str) -> Option<LiveNames> {
+    let Some(host) = host else {
+        return bus;
+    };
+    let mut l = bus.unwrap_or_else(|| LiveNames {
+        here: vec![me.to_owned()],
+        ..LiveNames::default()
+    });
+    // On this machine, the host is the authority on who is here.
+    l.here = host.to_vec();
+    if !l.here.iter().any(|n| n == me) {
+        l.here.push(me.to_owned());
+    }
+    for n in host {
+        if n != me && !l.others.contains(n) {
+            l.others.push(n.clone());
+        }
+    }
+    Some(l)
+}
+
 /// The live names on `fqdn`, read again when the cached listing is stale
 /// or does not know a name that was just mentioned (a session that has
 /// only just started). `None` when the bus cannot be read: routing then
@@ -103,5 +127,23 @@ mod tests {
         let l = from_listing(&listing, None, "quiet-otter");
         assert_eq!(l.others, ["bob", "alice", "carol"]);
         assert_eq!(l.here, ["quiet-otter"]);
+    }
+
+    #[test]
+    fn the_device_host_adds_sessions_the_bus_does_not_know() {
+        let host = ["bob".to_owned(), "carol".to_owned()];
+        // carol never joined the bus: the host still knows she is here.
+        let bus = LiveNames {
+            others: vec!["alice".into()],
+            here: vec!["bob".into()],
+        };
+        let l = with_host(Some(bus), Some(&host), "bob").unwrap();
+        assert_eq!(l.others, ["alice", "carol"]);
+        assert_eq!(l.here, ["bob", "carol"]);
+        // The bus unreadable: the host alone.
+        let l = with_host(None, Some(&host), "bob").unwrap();
+        assert_eq!(l.others, ["carol"]);
+        // An older host: the bus alone, unchanged.
+        assert_eq!(with_host(None, None, "bob"), None);
     }
 }

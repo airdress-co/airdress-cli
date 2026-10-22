@@ -34,6 +34,11 @@ use serde_json::{json, Value};
 struct Host {
     messages: Vec<Value>,
     sent: Vec<Value>,
+    /// Names held on this host: name to the nonce of the session holding it.
+    names: std::collections::BTreeMap<String, String>,
+    /// Sessions waiting here that this test does not start (and that the
+    /// bus stub does not list).
+    others_here: Vec<String>,
 }
 
 fn read_request(stream: &mut std::net::TcpStream) -> Option<String> {
@@ -144,10 +149,34 @@ fn spawn_device_host(socket: &std::path::Path, host: Arc<Mutex<Host>>) {
                             json!({"ok": true, "messages": msgs, "next_cursor": next})
                         }
                         Some("chat.wait") => {
+                            // A name another session holds is refused with
+                            // a suggestion, as the real host does.
+                            if let (Some(name), Some(nonce)) =
+                                (req["session_name"].as_str(), req["session_nonce"].as_str())
+                            {
+                                let mut h = host.lock().unwrap();
+                                match h.names.get(name) {
+                                    Some(holder) if holder != nonce => {
+                                        let answer = json!({"ok": true, "name_taken": true,
+                                                            "suggested": format!("{name}-2")});
+                                        writeln!(w, "{answer}").unwrap();
+                                        continue;
+                                    }
+                                    _ => {
+                                        h.names.insert(name.to_owned(), nonce.to_owned());
+                                    }
+                                }
+                            }
                             // A short hold, then whatever is newer than `after`;
                             // `after: null` answers the head and nothing else.
                             std::thread::sleep(Duration::from_millis(100));
                             let h = host.lock().unwrap();
+                            let names_here: Vec<String> = h
+                                .names
+                                .keys()
+                                .cloned()
+                                .chain(h.others_here.iter().cloned())
+                                .collect();
                             let head = h
                                 .messages
                                 .iter()
@@ -163,7 +192,7 @@ fn spawn_device_host(socket: &std::path::Path, host: Arc<Mutex<Host>>) {
                                     .cloned()
                                     .collect(),
                             };
-                            json!({"ok": true, "messages": msgs, "head": head})
+                            json!({"ok": true, "messages": msgs, "head": head, "names_here": names_here})
                         }
                         Some("chat.send") => {
                             host.lock().unwrap().sent.push(req.clone());
@@ -525,9 +554,13 @@ fn a_mention_reaches_only_the_named_session() {
     assert_eq!(typo["params"]["meta"]["addressed"], "unmatched");
     assert!(typo["params"]["meta"]["answer_unmatched"].is_string());
     // The answer can name who is here and the name the typo was near.
-    assert_eq!(typo["params"]["meta"]["here"], "alice");
+    // The device host knows both sessions are here, so only the first
+    // name answers.
+    assert_eq!(typo["params"]["meta"]["here"], "alice,bob");
     assert_eq!(typo["params"]["meta"]["did_you_mean"], "bob");
-    bob.wait_for("the typo, at bob", is("e-typo"));
+    assert_eq!(typo["params"]["meta"]["answer_unmatched"], "true");
+    let at_bob = bob.wait_for("the typo, at bob", is("e-typo"));
+    assert_eq!(at_bob["params"]["meta"]["answer_unmatched"], "false");
     std::thread::sleep(Duration::from_millis(400));
     assert!(
         !alice.notifications.iter().any(is("e-bob")),
@@ -560,6 +593,92 @@ fn a_mention_reaches_only_the_named_session() {
     assert_eq!(host.lock().unwrap().sent[0]["text"], "bob: It is noon.");
     alice.stop();
     bob.stop();
+}
+
+#[test]
+fn the_device_host_settles_a_clash_and_knows_who_is_off_the_bus() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("state");
+    let port = spawn_http();
+    let operator_host = format!("127.0.0.1:{port}");
+    profile_store(home.path(), port, &operator_host);
+    // carol waits on this host but never joined the bus.
+    let host = Arc::new(Mutex::new(Host {
+        others_here: vec!["carol".into()],
+        ..Host::default()
+    }));
+    spawn_device_host(
+        &airdress::agent_bus::socket::socket_path(
+            &airdress::agent_bus::socket::device_dir(&state, &operator_host),
+            None,
+        ),
+        Arc::clone(&host),
+    );
+    let mut alice = Server::start(
+        home.path(),
+        &state,
+        &operator_host,
+        &["--session-name", "alice"],
+    );
+    std::thread::sleep(Duration::from_millis(600));
+
+    // A second session asking for alice is told it is alice-2.
+    let mut second = Server::start(
+        home.path(),
+        &state,
+        &operator_host,
+        &["--session-name", "alice"],
+    );
+    let notice = second.wait_for("the rename notice", |n| {
+        n["method"] == "notifications/claude/channel" && n["params"]["meta"]["kind"] == "notice"
+    });
+    assert!(
+        notice["params"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("alice-2"),
+        "{notice}"
+    );
+    let who = second.tool(2, "whoami", json!({}));
+    assert_eq!(
+        who["result"]["structuredContent"]["session_name"], "alice-2",
+        "{who}"
+    );
+    assert!(
+        who["result"]["structuredContent"]["name_note"]
+            .as_str()
+            .unwrap()
+            .contains("another session on this machine"),
+        "{who}"
+    );
+    let who = alice.tool(2, "whoami", json!({}));
+    assert_eq!(
+        who["result"]["structuredContent"]["session_name"], "alice",
+        "{who}"
+    );
+
+    // "@carol" is carol's, although the bus has never heard of her: alice
+    // is not interrupted. Without the host's list it was a typo, pushed.
+    std::thread::sleep(Duration::from_millis(400));
+    {
+        let mut h = host.lock().unwrap();
+        h.messages
+            .push(message(1, "e-carol", "c-mine", false, "@carol hi"));
+        h.messages
+            .push(message(2, "e-all", "c-mine", false, "and everyone"));
+    }
+    let is = |id: &'static str| {
+        move |n: &Value| {
+            n["method"] == "notifications/claude/channel" && n["params"]["meta"]["message_id"] == id
+        }
+    };
+    alice.wait_for("the message for everyone", is("e-all"));
+    assert!(
+        !alice.notifications.iter().any(is("e-carol")),
+        "alice was interrupted with carol's message"
+    );
+    alice.stop();
+    second.stop();
 }
 
 #[test]

@@ -212,16 +212,49 @@ pub async fn start(session: Arc<Session>) {
     let fqdn = target.fqdn;
     let mut after: Option<i64> = None;
     let mut idle = IDLE_MIN;
+    // Which session holds a name on the device host: this process, for as
+    // long as it runs (SPEC-166 §5.2).
+    let nonce = uuid::Uuid::new_v4().to_string();
     loop {
         let req = json!({
             "op": "chat.wait",
             "after": after,
             "timeout_ms": WAIT.as_millis() as u64,
+            "session_name": session.name(),
+            "session_nonce": nonce,
         });
         match ask(&session, &fqdn, req).await {
+            Ok(v) if v["name_taken"] == json!(true) => {
+                // Another session on this machine holds the name, possibly
+                // one that is not on the bus: take the host's suggestion
+                // and say so, as a bus collision does.
+                let want = session.name();
+                let Some(got) = v["suggested"].as_str().map(str::to_owned) else {
+                    tokio::time::sleep(idle).await;
+                    continue;
+                };
+                let why = format!(
+                    "{want} is held by another session on this machine, so this session is {got}"
+                );
+                session.rename(got, why.clone());
+                session
+                    .notify(json!({
+                        "jsonrpc": "2.0",
+                        "method": channel_push::METHOD,
+                        "params": {"content": why, "meta": {"kind": "notice"}},
+                    }))
+                    .await;
+            }
             Ok(v) => {
                 idle = IDLE_MIN;
                 let me = session.name();
+                // The names waiting on this device host, when it is new
+                // enough to say; an older host leaves routing to the bus.
+                let host_here: Option<Vec<String>> = v["names_here"].as_array().map(|a| {
+                    a.iter()
+                        .filter_map(|n| n.as_str().map(str::to_owned))
+                        .collect()
+                });
                 for m in v["messages"].as_array().into_iter().flatten() {
                     if m["from_self"] == json!(true) {
                         continue;
@@ -236,7 +269,8 @@ pub async fn start(session: Arc<Session>) {
                     let live = if mentioned.is_empty() || mentioned.contains(&me) {
                         None
                     } else {
-                        names_live::get(&session, &fqdn, &mentioned).await
+                        let bus = names_live::get(&session, &fqdn, &mentioned).await;
+                        names_live::with_host(bus, host_here.as_deref(), &me)
                     };
                     let a = names::route(&me, &mentioned, live.as_ref().map(|l| &l.others[..]));
                     if a == Addressed::Elsewhere {
