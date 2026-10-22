@@ -250,9 +250,19 @@ pub async fn start(session: Arc<Session>) {
                         meta["mentions"] = json!(mentioned.join(","));
                     }
                     if a == Addressed::Unmatched {
-                        let here = live.map(|l| l.here).unwrap_or_else(|| vec![me.clone()]);
+                        let (here, others) = live
+                            .map(|l| (l.here, l.others))
+                            .unwrap_or_else(|| (vec![me.clone()], Vec::new()));
                         meta["answer_unmatched"] =
                             json!(names::answers_unmatched(&me, &here).to_string());
+                        // Who the answer names: the sessions on this
+                        // device, and the live name the typo was nearest.
+                        meta["here"] = json!(here.join(","));
+                        let mut known = others;
+                        known.push(me.clone());
+                        if let Some(n) = mentioned.iter().find_map(|m| names::closest(m, &known)) {
+                            meta["did_you_mean"] = json!(n);
+                        }
                     }
                     session.notify(n).await;
                 }

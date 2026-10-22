@@ -288,6 +288,56 @@ pub fn answers_unmatched(me: &str, here: &[String]) -> bool {
     here.iter().all(|n| me <= n.as_str())
 }
 
+/// The live name `mention` most likely meant: the nearest within two
+/// edits, where swapping two neighbouring letters counts as one ("daev" is
+/// one edit from "dave"). A tie goes to the name that sorts first, so every
+/// session suggests the same one. Two edits only for names of five letters
+/// or more, so "@al" does not suggest "bob".
+pub fn closest(mention: &str, live: &[String]) -> Option<String> {
+    let limit = |n: &str| {
+        if n.len().min(mention.len()) >= 5 {
+            2
+        } else {
+            1
+        }
+    };
+    let mut best: Option<(usize, &String)> = None;
+    for n in live {
+        if n == mention {
+            continue;
+        }
+        let d = edits(mention, n);
+        if d <= limit(n) && best.is_none_or(|(bd, bn)| (d, n) < (bd, bn)) {
+            best = Some((d, n));
+        }
+    }
+    best.map(|(_, n)| n.clone())
+}
+
+/// Edit distance with adjacent transpositions (optimal string alignment).
+fn edits(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let mut d = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for (i, row) in d.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for (j, cell) in d[0].iter_mut().enumerate() {
+        *cell = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            d[i][j] = (d[i - 1][j] + 1)
+                .min(d[i][j - 1] + 1)
+                .min(d[i - 1][j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
+            }
+        }
+    }
+    d[a.len()][b.len()]
+}
+
 /// The name a bus label carries, if it was written by a named session
 /// (`@<name> · <host> · <repo>`).
 pub fn from_label(label: &str) -> Option<String> {
@@ -419,6 +469,25 @@ mod tests {
         assert!(local_names("@bob@b.example hi", "a.example").is_empty());
         assert_eq!(local_names("@bob@A.example. hi", "a.example"), ["bob"]);
         assert_eq!(local_names("@bob hi", "a.example"), ["bob"]);
+    }
+
+    #[test]
+    fn a_typo_suggests_the_name_it_was_one_or_two_edits_from() {
+        let live: Vec<String> = ["bob", "dave", "alice", "quiet-otter"]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        assert_eq!(closest("daev", &live).as_deref(), Some("dave"));
+        assert_eq!(closest("bobb", &live).as_deref(), Some("bob"));
+        assert_eq!(closest("alcie", &live).as_deref(), Some("alice"));
+        assert_eq!(closest("quiet-oter", &live).as_deref(), Some("quiet-otter"));
+        // Too far, or too short to guess at.
+        assert_eq!(closest("carol", &live), None);
+        assert_eq!(closest("al", &live), None);
+        // A tie is the same answer everywhere.
+        let twins: Vec<String> = vec!["bob".into(), "rob".into()];
+        assert_eq!(closest("cob", &twins).as_deref(), Some("bob"));
+        assert_eq!(edits("daev", "dave"), 1);
     }
 
     #[test]

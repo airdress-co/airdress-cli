@@ -524,6 +524,9 @@ fn a_mention_reaches_only_the_named_session() {
     let typo = alice.wait_for("the typo, at alice", is("e-typo"));
     assert_eq!(typo["params"]["meta"]["addressed"], "unmatched");
     assert!(typo["params"]["meta"]["answer_unmatched"].is_string());
+    // The answer can name who is here and the name the typo was near.
+    assert_eq!(typo["params"]["meta"]["here"], "alice");
+    assert_eq!(typo["params"]["meta"]["did_you_mean"], "bob");
     bob.wait_for("the typo, at bob", is("e-typo"));
     std::thread::sleep(Duration::from_millis(400));
     assert!(
