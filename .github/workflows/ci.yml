@@ -60,8 +60,16 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
         run: |
-          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] ||
+          # A pull request is checked from where it left its base, which is
+          # the base itself only while the branch is up to date: a branch
+          # behind main would otherwise be checked back to the root, and
+          # fail on commits main has carried for weeks.
+          if [ -n "$PULL_REQUEST" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null &&
+              FORK=$(git merge-base "$BASE" "$HEAD"); then
+            RANGE=("$FORK..$HEAD")
+          elif [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] ||
               ! git cat-file -e "$BASE^{commit}" 2>/dev/null ||
               ! git merge-base --is-ancestor "$BASE" "$HEAD"; then
             RANGE=("$HEAD")
