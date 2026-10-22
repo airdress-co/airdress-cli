@@ -315,6 +315,7 @@ pub fn free(name: &str, taken: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
+    // cspell:ignore bobb
     use super::*;
 
     fn names(text: &str) -> Vec<String> {

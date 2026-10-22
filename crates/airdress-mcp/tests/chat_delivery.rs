@@ -19,6 +19,8 @@
 //! - with the airdress's agent devices off, they say that instead, and the
 //!   device host is never asked.
 
+// cspell:ignore bobb
+
 use std::io::{BufRead, BufReader, Read as _, Write};
 use std::net::TcpListener;
 use std::process::{Command, Stdio};
