@@ -289,7 +289,7 @@ pub fn answers_unmatched(me: &str, here: &[String]) -> bool {
 }
 
 /// The live name `mention` most likely meant: the nearest within two
-/// edits, where swapping two neighbouring letters counts as one ("daev" is
+/// edits, where swapping two adjacent letters counts as one ("daev" is
 /// one edit from "dave"). A tie goes to the name that sorts first, so every
 /// session suggests the same one. Two edits only for names of five letters
 /// or more, so "@al" does not suggest "bob".
@@ -365,7 +365,7 @@ pub fn free(name: &str, taken: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    // cspell:ignore bobb
+    // cspell:ignore bobb daev alcie oter
     use super::*;
 
     fn names(text: &str) -> Vec<String> {
