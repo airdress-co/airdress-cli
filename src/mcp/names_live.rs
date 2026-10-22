@@ -46,7 +46,7 @@ pub fn from_listing(listing: &Value, me: Option<&str>, my_name: &str) -> LiveNam
         if me.is_some() && r["id"].as_str() == me {
             continue;
         }
-        let Some(name) = r["label"].as_str().and_then(names::from_label) else {
+        let Some(name) = names::of_row(r) else {
             continue;
         };
         if !out.others.contains(&name) {

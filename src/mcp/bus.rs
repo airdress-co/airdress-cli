@@ -225,7 +225,7 @@ async fn session_by_name_or_id(api: &BusClient, to: &str) -> Result<String> {
     let label = |r: &Value| r["label"].as_str().unwrap_or_default().to_owned();
     let mut hits: Vec<&Value> = rows
         .iter()
-        .filter(|r| r["label"].as_str().and_then(names::from_label).as_deref() == Some(&*want))
+        .filter(|r| names::of_row(r).as_deref() == Some(&*want))
         .collect();
     if hits.is_empty() {
         hits = rows
@@ -239,10 +239,7 @@ async fn session_by_name_or_id(api: &BusClient, to: &str) -> Result<String> {
             .map(str::to_owned)
             .context("the bus listed a session without an id"),
         [] => {
-            let mut known: Vec<String> = rows
-                .iter()
-                .filter_map(|r| r["label"].as_str().and_then(names::from_label))
-                .collect();
+            let mut known: Vec<String> = rows.iter().filter_map(names::of_row).collect();
             known.sort_unstable();
             known.dedup();
             bail!(
@@ -280,15 +277,38 @@ pub(crate) async fn own_session_id(session: &Arc<Session>, fqdn: &str) -> Option
     Some(l.session_id().await)
 }
 
+/// Whether this airdress's operator keeps session names itself (SPEC-166
+/// phase B), as its `/info` says.
+fn operator_names(info: &Value) -> bool {
+    info["features"]
+        .as_array()
+        .is_some_and(|f| f.iter().any(|x| x == "session_names"))
+}
+
+/// Tell the person the session took another name, on the bus notices and
+/// as a channel notice.
+async fn renamed(session: &Arc<Session>, got: String, why: String) {
+    session.rename(got, why.clone());
+    session.bus_notices.lock().await.push(why.clone());
+    session
+        .notify(json!({
+            "jsonrpc": "2.0",
+            "method": channel_push::METHOD,
+            "params": {"content": why, "meta": {"kind": "notice"}},
+        }))
+        .await;
+}
+
 /// Register (or re-register, under a fresh id) this server's session.
 async fn register(session: &Arc<Session>, l: &Arc<Link>) -> Result<()> {
     let enrollment = l.signer.enrollment().await?;
     *l.enrollment.lock().await = enrollment.clone();
     let mut id = l.session.lock().await;
+    let named = operator_names(&l.info);
     // An id is registered once; a re-registration is a new session.
     if l.used.swap(true, Ordering::SeqCst) {
         *id = uuid::Uuid::new_v4().to_string();
-    } else {
+    } else if !named {
         // The first registration settles the name: one a live session
         // already holds gets the first free suffix, and the person is
         // told. A re-registration keeps it (its old session may still be
@@ -299,46 +319,70 @@ async fn register(session: &Arc<Session>, l: &Arc<Link>) -> Result<()> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .filter_map(|r| r["label"].as_str().and_then(names::from_label))
+                .filter_map(names::of_row)
                 .collect();
             let want = session.name();
             let got = names::free(&want, &taken);
             if got != want {
                 let why = format!("{want} was taken on this airdress, so this session is {got}");
-                session.rename(got.clone(), why.clone());
-                session.bus_notices.lock().await.push(why.clone());
-                session
-                    .notify(json!({
-                        "jsonrpc": "2.0",
-                        "method": channel_push::METHOD,
-                        "params": {"content": why, "meta": {"kind": "notice"}},
-                    }))
-                    .await;
+                renamed(session, got, why).await;
             }
         }
     }
-    let mut body = json!({
-        "id": *id,
-        "harness": session.opts.harness,
-        "host": crate::mcp::session::hostname(),
-        "repo": crate::mcp::session::repo_name(),
-        "label": session.session_label(),
-        "topics": session.opts.bus_topics,
-    });
-    attest(
-        &l.signer,
-        &l.airdress,
-        &id,
-        &enrollment,
-        "session.register",
-        &id,
-        &mut body,
-    )
-    .await?;
-    let answer = bus_client(session, &l.fqdn)
-        .await?
-        .request(Method::POST, "/sessions", Some(&body))
+    // An operator that keeps names settles a clash itself: a name another
+    // live session holds is refused with a suggestion, and a pinned name
+    // whose holder has only just gone quiet is refused with a wait.
+    let mut waits = 0;
+    let mut renames = 0;
+    let answer = loop {
+        let mut body = json!({
+            "id": *id,
+            "harness": session.opts.harness,
+            "host": crate::mcp::session::hostname(),
+            "repo": crate::mcp::session::repo_name(),
+            "label": if named { session.session_label_without_name() } else { session.session_label() },
+            "topics": session.opts.bus_topics,
+        });
+        if named {
+            body["name"] = json!(session.name());
+            body["pinned"] = json!(session.name_pinned());
+        }
+        attest(
+            &l.signer,
+            &l.airdress,
+            &id,
+            &enrollment,
+            "session.register",
+            &id,
+            &mut body,
+        )
         .await?;
+        let sent = bus_client(session, &l.fqdn)
+            .await?
+            .request(Method::POST, "/sessions", Some(&body))
+            .await;
+        let Err(e) = sent else {
+            break sent?;
+        };
+        let Some(r) = client::refusal(&e).filter(|r| r.code == "session_name_taken") else {
+            return Err(e);
+        };
+        let detail = &r.body["error"];
+        let wait = detail["retry_after_seconds"].as_u64().or(r.retry_after);
+        match (wait, detail["suggested"].as_str()) {
+            (Some(s), _) if session.name_pinned() && waits < 3 => {
+                waits += 1;
+                tokio::time::sleep(Duration::from_secs(s.clamp(1, 60))).await;
+            }
+            (_, Some(got)) if renames < 3 => {
+                renames += 1;
+                let want = session.name();
+                let why = format!("{want} is held by another live session on this airdress, so this session is {got}");
+                renamed(session, got.to_owned(), why).await;
+            }
+            _ => return Err(e),
+        }
+    };
     // A re-registration keeps where reading had got to; a first one
     // starts at the airdress's head as the operator reports it, so a new
     // session is not handed the topics' whole history.
@@ -1011,7 +1055,7 @@ pub async fn call(
                 for row in list.iter_mut() {
                     let you = me.as_deref() == row["id"].as_str();
                     row["you"] = json!(you);
-                    if let Some(n) = row["label"].as_str().and_then(names::from_label) {
+                    if let Some(n) = names::of_row(row) {
                         row["name"] = json!(n);
                     }
                     row["writes"] = json!(if row["attestation"] == "operator" {
@@ -1219,6 +1263,32 @@ async fn write_tool(
                 (None, Some(to)) => {
                     if s(args, "fence").is_some() {
                         bail!("a direct message cannot be fenced; post to the claim's topic");
+                    }
+                    // A name goes to the operator when it keeps names, so
+                    // the session it resolves to is the one live at the
+                    // moment of the post. A name only a phase A label
+                    // carries is not known to it, and is resolved here.
+                    if uuid::Uuid::parse_str(to).is_err() && operator_names(&l.info) {
+                        let name = to.trim().trim_start_matches('@').to_ascii_lowercase();
+                        let mut by_name = body.clone();
+                        by_name["to_name"] = json!(name);
+                        match write(
+                            session,
+                            &l,
+                            Method::POST,
+                            "/messages",
+                            "message.post",
+                            &format!("name:{name}"),
+                            &by_name,
+                        )
+                        .await
+                        {
+                            Ok(v) => return Ok(written(v, "sent")),
+                            Err(e)
+                                if client::refusal(&e)
+                                    .is_some_and(|r| r.code == "no_session_named") => {}
+                            Err(e) => return Err(e),
+                        }
                     }
                     let to = &session_by_name_or_id(&bus_client(session, &target.fqdn).await?, to)
                         .await?;

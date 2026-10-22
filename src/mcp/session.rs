@@ -502,6 +502,24 @@ impl Session {
         }
         format!("@{} · {} · {}", self.name(), hostname(), repo_name())
     }
+
+    /// The label for an operator that keeps session names itself (SPEC-166
+    /// phase B): the name travels as its own field, so the label is only
+    /// where the session runs.
+    pub fn session_label_without_name(&self) -> String {
+        match self.opts.bus_label.as_deref().map(str::trim) {
+            Some(l) if !l.is_empty() => l.to_owned(),
+            _ => format!("{} · {}", hostname(), repo_name()),
+        }
+    }
+
+    /// Whether this session's name is one a person chose (a flag, the
+    /// environment, the plugin setting) and still holds: such a name is
+    /// pinned on the operator, so a restart takes it back.
+    pub fn name_pinned(&self) -> bool {
+        let r = &self.opts.session_name;
+        r.source != crate::mcp::names::Source::Random && self.name() == r.name
+    }
 }
 
 fn source_label(s: Source) -> &'static str {

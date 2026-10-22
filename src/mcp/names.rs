@@ -338,6 +338,15 @@ fn edits(a: &str, b: &str) -> usize {
     d[a.len()][b.len()]
 }
 
+/// A bus session row's name: the operator's own `name` field where it
+/// keeps names (SPEC-166 phase B), else the name a phase A label carries.
+pub fn of_row(row: &serde_json::Value) -> Option<String> {
+    row["name"]
+        .as_str()
+        .and_then(|n| normalise(n).ok())
+        .or_else(|| row["label"].as_str().and_then(from_label))
+}
+
 /// The name a bus label carries, if it was written by a named session
 /// (`@<name> · <host> · <repo>`).
 pub fn from_label(label: &str) -> Option<String> {
@@ -469,6 +478,20 @@ mod tests {
         assert!(local_names("@bob@b.example hi", "a.example").is_empty());
         assert_eq!(local_names("@bob@A.example. hi", "a.example"), ["bob"]);
         assert_eq!(local_names("@bob hi", "a.example"), ["bob"]);
+    }
+
+    #[test]
+    fn a_row_is_named_by_the_operator_first_and_its_label_second() {
+        use serde_json::json;
+        assert_eq!(
+            of_row(&json!({"name": "bob", "label": "box · repo"})).as_deref(),
+            Some("bob")
+        );
+        assert_eq!(
+            of_row(&json!({"name": null, "label": "@dave · box · repo"})).as_deref(),
+            Some("dave")
+        );
+        assert_eq!(of_row(&json!({"label": "box · repo"})), None);
     }
 
     #[test]

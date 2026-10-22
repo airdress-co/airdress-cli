@@ -55,6 +55,16 @@ struct Bus {
     /// Refuse the next direct message as `agent_session_expired`, as an
     /// operator does once it has forgotten a session.
     expire_next_write: bool,
+    /// An operator that keeps session names (SPEC-166 phase B): `/info`
+    /// says so, a register's `name` is settled here, and posts by name
+    /// arrive on `/messages`.
+    keeps_names: bool,
+    /// Names held: name to session id.
+    held: std::collections::BTreeMap<String, String>,
+    /// Posts by name: the bodies.
+    by_name: Vec<Value>,
+    /// Registrations refused for their name.
+    refused: Vec<Value>,
 }
 
 /// A peer's device-signed message.
@@ -197,18 +207,35 @@ fn spawn_operator(bus: Arc<Mutex<Bus>>, ours: SigningKey) -> u16 {
                     ("GET", "/.well-known/airdress/keys.json", _) => {
                         respond(&mut stream, 200, &json!({"keys": []}));
                     }
-                    ("GET", _, "/info") => respond(
-                        &mut stream,
-                        200,
-                        &json!({"protocol": 1, "airdress": AIRDRESS,
-                                "limits": {"heartbeat_seconds": 30, "claim_ttl_default_seconds": 300}}),
-                    ),
+                    ("GET", _, "/info") => {
+                        let mut info = json!({"protocol": 1, "airdress": AIRDRESS,
+                                "limits": {"heartbeat_seconds": 30, "claim_ttl_default_seconds": 300}});
+                        if bus.lock().unwrap().keeps_names {
+                            info["features"] = json!(["session_names"]);
+                        }
+                        respond(&mut stream, 200, &info);
+                    }
                     ("POST", _, "/sessions") => {
                         check_write(&req.body, &ours);
                         let id = req.body["id"].as_str().unwrap().to_owned();
                         verify_signature("session.register", &id, &req.body, &ours);
                         assert_eq!(req.body["attestation"]["session"], id.as_str());
                         let mut b = bus.lock().unwrap();
+                        if let Some(name) = req.body["name"].as_str() {
+                            assert!(b.keeps_names, "a name sent to an operator that keeps none");
+                            if b.held.get(name).is_some_and(|holder| *holder != id) {
+                                b.refused.push(req.body.clone());
+                                drop(b);
+                                respond(
+                                    &mut stream,
+                                    409,
+                                    &json!({"error": {"code": "session_name_taken", "message": "x",
+                                            "name": name, "suggested": format!("{name}-2")}}),
+                                );
+                                return;
+                            }
+                            b.held.insert(name.to_owned(), id.clone());
+                        }
                         b.registered.push(req.body.clone());
                         respond(&mut stream, 201, &json!({"id": id}));
                     }
@@ -291,6 +318,24 @@ fn spawn_operator(bus: Arc<Mutex<Bus>>, ours: SigningKey) -> u16 {
                         verify_signature("ack", &id, &req.body, &ours);
                         bus.lock().unwrap().acks.push((id, req.body.clone()));
                         respond(&mut stream, 201, &json!({"state": req.body["state"]}));
+                    }
+                    ("POST", _, "/messages") => {
+                        let to = req.body["to_name"].as_str().unwrap().to_owned();
+                        check_write(&req.body, &ours);
+                        verify_signature("message.post", &format!("name:{to}"), &req.body, &ours);
+                        let mut b = bus.lock().unwrap();
+                        if b.held.contains_key(&to) {
+                            b.by_name.push(req.body.clone());
+                            drop(b);
+                            respond(&mut stream, 201, &json!({"id": "n-1", "seq": 1}));
+                        } else {
+                            drop(b);
+                            respond(
+                                &mut stream,
+                                404,
+                                &json!({"error": {"code": "no_session_named", "message": "x", "name": to}}),
+                            );
+                        }
                     }
                     ("POST", _, r) if r.starts_with("/sessions/") && r.ends_with("/messages") => {
                         let to = r
@@ -755,4 +800,130 @@ fn pushed_items_are_labelled_and_reads_lose_nothing() {
     assert_eq!(bus.lock().unwrap().ended[0], current);
     let status = server.child.wait().unwrap();
     assert!(status.success());
+}
+
+/// SPEC-166 phase B: against an operator that keeps names, the name is a
+/// field of its own, the operator settles a clash, and a post by name goes
+/// to it.
+#[test]
+fn an_operator_that_keeps_names_settles_them() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("state");
+    let ours = SigningKey::from_bytes(&[0x21; 32]);
+    let peer = SigningKey::from_bytes(&[0x22; 32]);
+    let root = SigningKey::from_bytes(&[0x23; 32]);
+    let bus = Arc::new(Mutex::new(Bus {
+        keeps_names: true,
+        ..Bus::default()
+    }));
+    {
+        // The peer holds `tester` on the operator; its label says nothing.
+        let mut b = bus.lock().unwrap();
+        b.held.insert("tester".into(), PEER_SESSION.into());
+        let mut row = session_row(PEER_SESSION, PEER_ENROLLMENT, &peer, &root);
+        row["label"] = json!("peer-box · other-repo");
+        row["name"] = json!("tester");
+        b.sessions.push(row);
+    }
+    let op_port = spawn_operator(Arc::clone(&bus), ours.clone());
+    let hub_port = spawn_hub();
+    let operator_host = format!("127.0.0.1:{op_port}");
+    profile_store(home.path(), hub_port, &operator_host);
+    spawn_device_host(
+        &airdress::agent_bus::socket::socket_path(
+            &airdress::agent_bus::socket::device_dir(&state, &operator_host),
+            None,
+        ),
+        ours.clone(),
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_airdress-mcp"))
+        .args([
+            "--harness",
+            "test-harness",
+            "--profile",
+            "default",
+            "--default-airdress",
+            &operator_host,
+            "--bus",
+            "true",
+            "--bus-topics",
+            "general",
+            "--session-name",
+            "tester",
+            "--state-dir",
+        ])
+        .arg(&state)
+        .env("HOME", home.path())
+        .env_remove("AIRDRESS_SESSION_NAME")
+        .env("AIRDRESS_OPERATOR_URL", format!("http://{operator_host}"))
+        .env("NO_PROXY", "127.0.0.1,localhost")
+        .env("no_proxy", "127.0.0.1,localhost")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("start airdress-mcp");
+    let (tx, rx) = mpsc::channel();
+    let stdout = child.stdout.take().unwrap();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                break;
+            };
+            if tx.send(v).is_err() {
+                break;
+            }
+        }
+    });
+    let mut server = Server {
+        stdin: child.stdin.take(),
+        child,
+        lines: rx,
+        notifications: Vec::new(),
+    };
+    server.call(
+        1,
+        "initialize",
+        json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "0"}}),
+    );
+
+    // The configured name was asked for, pinned, and refused; the
+    // suggestion was taken, not pinned, and the label carries no name.
+    wait_until("registration", || {
+        !bus.lock().unwrap().registered.is_empty()
+    });
+    let (refused, reg) = {
+        let b = bus.lock().unwrap();
+        (b.refused.clone(), b.registered[0].clone())
+    };
+    assert_eq!(refused[0]["name"], "tester");
+    assert_eq!(refused[0]["pinned"], true);
+    assert_eq!(reg["name"], "tester-2");
+    assert_eq!(reg["pinned"], false);
+    let label = reg["label"].as_str().unwrap();
+    assert!(!label.starts_with('@'), "{label}");
+    let who = server.call(2, "tools/call", json!({"name": "whoami", "arguments": {}}));
+    let who = &who["result"]["structuredContent"];
+    assert_eq!(who["session_name"], "tester-2", "{who}");
+    assert!(
+        who["name_note"]
+            .as_str()
+            .unwrap()
+            .contains("held by another"),
+        "{who}"
+    );
+
+    // A post by name is resolved by the operator, signed for the name.
+    let sent = server.call(
+        3,
+        "tools/call",
+        json!({"name": "bus_post", "arguments": {"to_session": "@Tester", "content": "hi"}}),
+    );
+    assert_eq!(sent["result"]["isError"], false, "{sent}");
+    assert_eq!(bus.lock().unwrap().by_name[0]["to_name"], "tester");
+    assert!(bus.lock().unwrap().direct.is_empty());
+
+    drop(server.stdin.take());
+    assert!(server.child.wait().unwrap().success());
 }
