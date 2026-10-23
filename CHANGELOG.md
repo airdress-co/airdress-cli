@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12](https://github.com/airdress-co/airdress-cli/compare/v0.1.11...v0.1.12) - 2026-10-22
+
+### Added
+
+- *(mcp)* A typo's reply names who is here and suggests the near name
+- *(agent)* The device host knows the names of the sessions waiting on it
+- *(mcp)* Use the operator's session names where it keeps them
+
+### Fixed
+
+- *(mcp)* One re-registration per forgotten session, not one per path
+
+### Documentation
+
+- How a release is cut, checked and recovered
+
+### Build and release
+
+- *(attribution)* A pull request is checked from where it left its base
+
+### Tests
+
+- *(mcp)* A re-registration keeps its name; an ambiguous name is refused
+
+### Other
+
+- *(cspell)* The deliberate typos in the name tests
+
 ## [0.1.11](https://github.com/airdress-co/airdress-cli/compare/v0.1.10...v0.1.11) - 2026-10-22
 
 ### Added
