@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14](https://github.com/airdress-co/airdress-cli/compare/v0.1.13...v0.1.14) - 2026-10-23
+
+### Added
+
+- *(agent)* A conversation with a named session is that session's (166-C.2)
+
+### Fixed
+
+- *(shell-host)* Register the terminal with AsyncFd::register
+- *(deps)* Tokio 1.54.1 for RUSTSEC-2026-0386; the changelog's words in cspell
+
 ## [0.1.13](https://github.com/airdress-co/airdress-cli/compare/v0.1.12...v0.1.13) - 2026-10-23
 
 ### Fixed
