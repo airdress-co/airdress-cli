@@ -259,6 +259,15 @@ struct Conversation {
     session_name: Option<String>,
 }
 
+/// Whether a conversation's `target` names another airdress: not this
+/// one, and not a placeholder (`self.local`, `operator.local`, …).
+fn is_peer_airdress(target: &str, own: &str) -> bool {
+    !target.is_empty()
+        && !target.eq_ignore_ascii_case(own)
+        && target.contains('.')
+        && !target.to_ascii_lowercase().ends_with(".local")
+}
+
 /// The chat half of the device host.
 pub struct Chat {
     store: AgentStore,
@@ -462,6 +471,27 @@ impl Chat {
         Ok(out)
     }
 
+    /// Whether this device's listing has `conversation`.
+    async fn knows(&self, conversation: &str) -> bool {
+        self.conversations
+            .lock()
+            .await
+            .iter()
+            .any(|c| c.id == conversation)
+    }
+
+    /// The other airdress of `conversation`, when it is with one: its
+    /// target, unless that is this airdress or a placeholder such as
+    /// `self.local`.
+    async fn peer_of(&self, conversation: &str, own: &str) -> Option<String> {
+        let conversations = self.conversations.lock().await;
+        let target = conversations
+            .iter()
+            .find(|c| c.id == conversation)
+            .map(|c| c.target.clone())?;
+        is_peer_airdress(&target, own).then_some(target)
+    }
+
     /// The session `conversation` is with, when it is one.
     async fn session_of(&self, conversation: &str) -> Option<String> {
         self.conversations
@@ -516,6 +546,29 @@ impl Chat {
             self.prime_root(api, &env.from_airdress)
                 .await
                 .log_warn("agent chat: learning a sender's root");
+        }
+        // A conversation with another airdress holds that airdress's
+        // leaves, whose chain verifies against its root. A Welcome into it
+        // comes from this device's own owner, so the sender check above
+        // never learns that root, and the join failed "published root key
+        // unavailable" (SPEC-166 phase D, VM2 and qa-device). The listing
+        // names the conversation's other airdress; read it first when the
+        // conversation is new to this device.
+        if self
+            .peer_of(&env.conversation_id, &creds.airdress)
+            .await
+            .is_none()
+            && !self.knows(&env.conversation_id).await
+        {
+            self.refresh(api)
+                .await
+                .map(|_| ())
+                .log_warn("agent chat: refreshing conversations");
+        }
+        if let Some(peer) = self.peer_of(&env.conversation_id, &creds.airdress).await {
+            self.prime_root(api, &peer)
+                .await
+                .log_warn("agent chat: learning a conversation's other airdress's root");
         }
         let processed = {
             let mut guard = self.client.lock().await;
@@ -1009,6 +1062,16 @@ mod tests {
                 retry_after: None,
             }
         );
+    }
+
+    #[test]
+    fn a_peer_airdress_is_neither_this_one_nor_a_placeholder() {
+        let own = "019e37b4.a.airdr.es";
+        assert!(is_peer_airdress("qa-device.a.airdr.es", own));
+        assert!(!is_peer_airdress(own, own));
+        assert!(!is_peer_airdress("self.local", own));
+        assert!(!is_peer_airdress("operator.local", own));
+        assert!(!is_peer_airdress("", own));
     }
 
     #[test]
