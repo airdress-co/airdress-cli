@@ -215,6 +215,9 @@ pub async fn start(session: Arc<Session>) {
     // Which session holds a name on the device host: this process, for as
     // long as it runs (SPEC-166 §5.2).
     let nonce = uuid::Uuid::new_v4().to_string();
+    // A pinned name held by a session that may be this one's previous run
+    // is waited for, a few times, before a suggestion is taken.
+    let mut waits = 0;
     loop {
         let req = json!({
             "op": "chat.wait",
@@ -222,9 +225,17 @@ pub async fn start(session: Arc<Session>) {
             "timeout_ms": WAIT.as_millis() as u64,
             "session_name": session.name(),
             "session_nonce": nonce,
+            "session_pinned": session.name_pinned(),
         });
         match ask(&session, &fqdn, req).await {
             Ok(v) if v["name_taken"] == json!(true) => {
+                if let Some(s) = v["retry_after_seconds"].as_u64() {
+                    if session.name_pinned() && waits < 3 {
+                        waits += 1;
+                        tokio::time::sleep(Duration::from_secs(s.clamp(1, 60))).await;
+                        continue;
+                    }
+                }
                 // Another session on this machine holds the name, possibly
                 // one that is not on the bus: take the host's suggestion
                 // and say so, as a bus collision does.

@@ -39,6 +39,9 @@ struct Host {
     /// Sessions waiting here that this test does not start (and that the
     /// bus stub does not list).
     others_here: Vec<String>,
+    /// Names held by a session that has stopped waiting: a pinned claim is
+    /// told to retry this many times, then given the name.
+    quiet: std::collections::BTreeMap<String, u32>,
 }
 
 fn read_request(stream: &mut std::net::TcpStream) -> Option<String> {
@@ -155,6 +158,16 @@ fn spawn_device_host(socket: &std::path::Path, host: Arc<Mutex<Host>>) {
                                 (req["session_name"].as_str(), req["session_nonce"].as_str())
                             {
                                 let mut h = host.lock().unwrap();
+                                if req["session_pinned"] == json!(true) {
+                                    if let Some(left) = h.quiet.get_mut(name).filter(|l| **l > 0) {
+                                        *left -= 1;
+                                        let answer = json!({"ok": true, "name_taken": true,
+                                                            "suggested": format!("{name}-2"),
+                                                            "retry_after_seconds": 1});
+                                        writeln!(w, "{answer}").unwrap();
+                                        continue;
+                                    }
+                                }
                                 match h.names.get(name) {
                                     Some(holder) if holder != nonce => {
                                         let answer = json!({"ok": true, "name_taken": true,
@@ -679,6 +692,54 @@ fn the_device_host_settles_a_clash_and_knows_who_is_off_the_bus() {
     );
     alice.stop();
     second.stop();
+}
+
+#[test]
+fn a_restarted_session_waits_for_its_pinned_name_instead_of_renaming() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("state");
+    let port = spawn_http();
+    let operator_host = format!("127.0.0.1:{port}");
+    profile_store(home.path(), port, &operator_host);
+    // bob's previous run still holds the name on the host, and goes quiet.
+    let host = Arc::new(Mutex::new(Host {
+        quiet: [("bob".to_owned(), 2)].into(),
+        ..Host::default()
+    }));
+    spawn_device_host(
+        &airdress::agent_bus::socket::socket_path(
+            &airdress::agent_bus::socket::device_dir(&state, &operator_host),
+            None,
+        ),
+        Arc::clone(&host),
+    );
+    let mut bob = Server::start(
+        home.path(),
+        &state,
+        &operator_host,
+        &["--session-name", "bob"],
+    );
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !host.lock().unwrap().names.contains_key("bob") {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "bob never got its name back"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let who = bob.tool(2, "whoami", json!({}));
+    assert_eq!(
+        who["result"]["structuredContent"]["session_name"], "bob",
+        "{who}"
+    );
+    assert!(
+        !bob.notifications
+            .iter()
+            .any(|n| n["params"]["meta"]["kind"] == "notice"),
+        "a rename was announced: {:?}",
+        bob.notifications
+    );
+    bob.stop();
 }
 
 #[test]

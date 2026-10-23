@@ -56,6 +56,13 @@ const WAIT_MAX: Duration = Duration::from_secs(30);
 /// longest waits, so one slow poll does not free it (SPEC-166 §5.2).
 const NAME_HELD: Duration = Duration::from_secs(60);
 
+/// How long a holder must have been silent before a session with the same
+/// pinned name takes it over: one longest wait and a margin. A live holder
+/// starts a wait the moment the last one ends, so it is never this quiet;
+/// a restarted session finds its old self this quiet within a wait or two
+/// (the operator's takeover rule for the bus, FR-18).
+const NAME_TAKEOVER: Duration = Duration::from_secs(35);
+
 /// The names of the sessions waiting on this host (SPEC-166 §5.2). Each
 /// name is held by the nonce of the session that took it, and lapses
 /// [`NAME_HELD`] after that session's last wait.
@@ -69,19 +76,35 @@ pub struct NameTable {
 pub enum Claim {
     /// The name is this session's (now, or again).
     Held,
-    /// Another live session holds it; this one could be `suggested`.
-    Taken { suggested: String },
+    /// Another live session holds it; this one could be `suggested`. For a
+    /// pinned name, `retry_after` says when the holder will count as gone
+    /// if it does not wait again.
+    Taken {
+        suggested: String,
+        retry_after: Option<Duration>,
+    },
 }
 
 impl NameTable {
-    /// `nonce`'s session waits as `name` at `now`.
-    pub fn claim(&mut self, name: &str, nonce: &str, now: Instant) -> Claim {
+    /// `nonce`'s session waits as `name` at `now`. A `pinned` name (one a
+    /// person configured) is taken over from a holder that has stopped
+    /// waiting, so a restarted session gets its name back.
+    pub fn claim(&mut self, name: &str, nonce: &str, pinned: bool, now: Instant) -> Claim {
         self.lapse(now);
         match self.held.get(name) {
-            Some((holder, _)) if holder != nonce => {
+            Some((holder, seen))
+                if holder != nonce
+                    && !(pinned && now.saturating_duration_since(*seen) >= NAME_TAKEOVER) =>
+            {
+                let retry_after = pinned.then(|| {
+                    NAME_TAKEOVER
+                        .saturating_sub(now.saturating_duration_since(*seen))
+                        .max(Duration::from_secs(1))
+                });
                 let taken: Vec<String> = self.held.keys().cloned().collect();
                 Claim::Taken {
                     suggested: crate::mcp::names::free(name, &taken),
+                    retry_after,
                 }
             }
             _ => {
@@ -724,14 +747,23 @@ impl Chat {
             .as_str()
             .and_then(|n| crate::mcp::names::normalise(n).ok())
             .zip(req["session_nonce"].as_str().map(str::to_owned));
+        let pinned = req["session_pinned"] == json!(true);
         if let Some((name, nonce)) = &named {
             let claim = self
                 .names
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .claim(name, nonce, Instant::now());
-            if let Claim::Taken { suggested } = claim {
-                return json!({"ok": true, "name_taken": true, "suggested": suggested});
+                .claim(name, nonce, pinned, Instant::now());
+            if let Claim::Taken {
+                suggested,
+                retry_after,
+            } = claim
+            {
+                let mut v = json!({"ok": true, "name_taken": true, "suggested": suggested});
+                if let Some(r) = retry_after {
+                    v["retry_after_seconds"] = json!(r.as_secs());
+                }
+                return v;
             }
         }
         let names_here = |named: &Option<(String, String)>| {
@@ -742,7 +774,7 @@ impl Chat {
             // The wait just ended counts as seen, so a long poll does not
             // let its own name lapse.
             if let Some((name, nonce)) = named {
-                t.claim(name, nonce, Instant::now());
+                t.claim(name, nonce, pinned, Instant::now());
             }
             t.here(Instant::now())
         };
@@ -855,23 +887,63 @@ mod tests {
     fn a_name_is_held_by_one_session_and_lapses_after_its_last_wait() {
         let t0 = Instant::now();
         let mut t = NameTable::default();
-        assert_eq!(t.claim("bob", "n-1", t0), Claim::Held);
-        assert_eq!(t.claim("bob", "n-1", t0), Claim::Held, "its own again");
+        assert_eq!(t.claim("bob", "n-1", false, t0), Claim::Held);
         assert_eq!(
-            t.claim("bob", "n-2", t0),
+            t.claim("bob", "n-1", false, t0),
+            Claim::Held,
+            "its own again"
+        );
+        assert_eq!(
+            t.claim("bob", "n-2", false, t0),
             Claim::Taken {
-                suggested: "bob-2".into()
+                suggested: "bob-2".into(),
+                retry_after: None,
             }
         );
-        assert_eq!(t.claim("dave", "n-2", t0), Claim::Held);
+        assert_eq!(t.claim("dave", "n-2", false, t0), Claim::Held);
         assert_eq!(t.here(t0), ["bob", "dave"]);
         // Renaming frees the old name.
-        assert_eq!(t.claim("dave-x", "n-2", t0), Claim::Held);
+        assert_eq!(t.claim("dave-x", "n-2", false, t0), Claim::Held);
         assert_eq!(t.here(t0), ["bob", "dave-x"]);
         // Two long waits without a word, and the name is free.
         let later = t0 + NAME_HELD;
         assert_eq!(t.here(later), Vec::<String>::new());
-        assert_eq!(t.claim("bob", "n-3", later), Claim::Held);
+        assert_eq!(t.claim("bob", "n-3", false, later), Claim::Held);
+    }
+
+    #[test]
+    fn a_restarted_session_gets_its_pinned_name_back_from_its_silent_old_self() {
+        let t0 = Instant::now();
+        let mut t = NameTable::default();
+        assert_eq!(t.claim("bob", "old", true, t0), Claim::Held);
+        // The restart asks while the old process may still be waiting: it is
+        // told when to ask again rather than renamed.
+        let soon = t0 + Duration::from_secs(10);
+        assert_eq!(
+            t.claim("bob", "new", true, soon),
+            Claim::Taken {
+                suggested: "bob-2".into(),
+                retry_after: Some(NAME_TAKEOVER - Duration::from_secs(10)),
+            }
+        );
+        // The old process never waits again, so the name passes over.
+        let quiet = t0 + NAME_TAKEOVER;
+        assert_eq!(t.claim("bob", "new", true, quiet), Claim::Held);
+        assert_eq!(t.here(quiet), ["bob"]);
+        // The old one's in-flight wait ending does not take it back.
+        assert!(matches!(
+            t.claim("bob", "old", true, quiet),
+            Claim::Taken { .. }
+        ));
+        // An unpinned name is never taken over, however quiet its holder.
+        assert_eq!(t.claim("ann", "a-1", false, t0), Claim::Held);
+        assert_eq!(
+            t.claim("ann", "a-2", false, quiet),
+            Claim::Taken {
+                suggested: "ann-2".into(),
+                retry_after: None,
+            }
+        );
     }
 
     #[test]
