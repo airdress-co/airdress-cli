@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.13](https://github.com/airdress-co/airdress-cli/compare/v0.1.12...v0.1.13) - 2026-10-23
+
+### Fixed
+
+- *(agent)* A restarted session gets its pinned name back from the device host
+- *(agent)* A session hears the words of a system notice, not an empty [system]
+- *(agent)* Take airdress-mls 43f0781, a removed device waits for its Welcome
+- *(deps)* Ctutils 0.4.5 for RUSTSEC-2026-0385
+
 ## [0.1.12](https://github.com/airdress-co/airdress-cli/compare/v0.1.11...v0.1.12) - 2026-10-22
 
 ### Added
