@@ -198,7 +198,18 @@ pub fn spawn_with(
         .context("the child has no pid")?;
     drop(cmd);
     set_nonblocking(&master)?;
-    let master = Arc::new(AsyncFd::new(master).context("register the terminal")?);
+    // SAFETY: `master` is an `OwnedFd` moved into the `AsyncFd`, so its
+    // descriptor stays open, and is the same descriptor, until the
+    // `AsyncFd` is dropped: what `register` asks of its caller. The safe
+    // `AsyncFd::new` is deprecated as unsound for owners that are not
+    // (tokio #8587, RUSTSEC-2026-0386).
+    #[allow(unsafe_code)]
+    let registered = unsafe { AsyncFd::register(master) };
+    let master = Arc::new(
+        registered
+            .map_err(|e| e.into_parts().1)
+            .context("register the terminal")?,
+    );
     let (input, input_rx) = mpsc::channel(INPUT_QUEUE);
     let (read_done_tx, read_done_rx) = oneshot::channel();
     let mut tasks = tokio::task::JoinSet::new();
