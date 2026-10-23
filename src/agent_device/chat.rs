@@ -287,6 +287,10 @@ pub fn text_of(blocks: &Value) -> String {
         .filter_map(|b| match b["type"].as_str() {
             Some("text") => b["text"].as_str().map(str::to_owned),
             Some("code") => b["code"].as_str().map(|c| format!("```\n{c}\n```")),
+            // A notice the app sends, such as a radio session starting:
+            // its words matter, or the session sees an empty "[system]"
+            // (finding of SPEC-166 166-B.7).
+            Some("system") => b["text"].as_str().map(|t| format!("[system] {t}")),
             Some(other) => Some(format!("[{other}]")),
             None => None,
         })
@@ -951,9 +955,13 @@ mod tests {
         let blocks = json!([
             {"type": "text", "text": "hello"},
             {"type": "code", "code": "ls", "language": "sh"},
+            {"type": "system", "text": "Radio session started"},
             {"type": "image", "url": "https://x"},
         ]);
-        assert_eq!(text_of(&blocks), "hello\n```\nls\n```\n[image]");
+        assert_eq!(
+            text_of(&blocks),
+            "hello\n```\nls\n```\n[system] Radio session started\n[image]"
+        );
         assert_eq!(text_of(&json!("not blocks")), "");
     }
 }
