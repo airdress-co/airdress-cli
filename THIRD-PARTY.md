@@ -363,7 +363,7 @@ this project may not ship, and `deny.toml` lists the ones it may.
 | [tinyvec_macros](https://github.com/Soveu/tinyvec_macros) | 0.1.1 | MIT OR Apache-2.0 OR Zlib |
 | [tls_codec](https://github.com/RustCrypto/formats) | 0.4.2 | Apache-2.0 OR MIT |
 | [tls_codec_derive](https://github.com/RustCrypto/formats) | 0.4.2 | Apache-2.0 OR MIT |
-| [tokio](https://github.com/tokio-rs/tokio) | 1.52.3 | MIT |
+| [tokio](https://github.com/tokio-rs/tokio) | 1.54.1 | MIT |
 | [tokio-macros](https://github.com/tokio-rs/tokio) | 2.7.0 | MIT |
 | [tokio-rustls](https://github.com/rustls/tokio-rustls) | 0.26.4 | MIT OR Apache-2.0 |
 | [tokio-tungstenite](https://github.com/snapview/tokio-tungstenite) | 0.29.0 | MIT |

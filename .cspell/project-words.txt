@@ -281,3 +281,5 @@ endfor
 readelf
 zbus
 zvariant
+ctutils
+RUSTSEC
