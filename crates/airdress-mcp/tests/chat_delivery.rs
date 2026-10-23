@@ -42,6 +42,9 @@ struct Host {
     /// Names held by a session that has stopped waiting: a pinned claim is
     /// told to retry this many times, then given the name.
     quiet: std::collections::BTreeMap<String, u32>,
+    /// Messages kept for a session name nobody of that name waited for,
+    /// handed at that name's first wait, as the real host does.
+    backlog: std::collections::BTreeMap<String, Vec<Value>>,
 }
 
 fn read_request(stream: &mut std::net::TcpStream) -> Option<String> {
@@ -196,8 +199,13 @@ fn spawn_device_host(socket: &std::path::Path, host: Arc<Mutex<Host>>) {
                                 .filter_map(|m| m["seq"].as_i64())
                                 .max()
                                 .unwrap_or(0);
+                            let first = req["session_name"]
+                                .as_str()
+                                .and_then(|n| h.backlog.get(n))
+                                .cloned()
+                                .unwrap_or_default();
                             let msgs: Vec<Value> = match req["after"].as_i64() {
-                                None => vec![],
+                                None => first,
                                 Some(after) => h
                                     .messages
                                     .iter()
@@ -739,6 +747,72 @@ fn a_restarted_session_waits_for_its_pinned_name_instead_of_renaming() {
         "a rename was announced: {:?}",
         bob.notifications
     );
+    bob.stop();
+}
+
+/// SPEC-166 phase C: in a conversation with one named session every
+/// message is for that session, whatever it mentions, and what was written
+/// while it was not running reaches it when it starts.
+#[test]
+fn a_named_sessions_conversation_reaches_only_it_and_waits_for_it() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("state");
+    let port = spawn_http();
+    let operator_host = format!("127.0.0.1:{port}");
+    profile_store(home.path(), port, &operator_host);
+    let mut queued = message(1, "e-queued", "c-bob", false, "while you were away");
+    queued["for_session"] = json!("bob");
+    let host = Arc::new(Mutex::new(Host {
+        backlog: [("bob".to_owned(), vec![queued])].into(),
+        ..Host::default()
+    }));
+    spawn_device_host(
+        &airdress::agent_bus::socket::socket_path(
+            &airdress::agent_bus::socket::device_dir(&state, &operator_host),
+            None,
+        ),
+        Arc::clone(&host),
+    );
+    let mut alice = Server::start(
+        home.path(),
+        &state,
+        &operator_host,
+        &["--session-name", "alice"],
+    );
+    let mut bob = Server::start(
+        home.path(),
+        &state,
+        &operator_host,
+        &["--session-name", "bob"],
+    );
+    let is = |id: &'static str| {
+        move |n: &Value| {
+            n["method"] == "notifications/claude/channel" && n["params"]["meta"]["message_id"] == id
+        }
+    };
+    bob.wait_for("what waited for bob", is("e-queued"));
+
+    std::thread::sleep(Duration::from_millis(400));
+    {
+        let mut h = host.lock().unwrap();
+        // Mentions alice, but is written to bob.
+        let mut m = message(2, "e-for-bob", "c-bob", false, "@alice can you see this?");
+        m["for_session"] = json!("bob");
+        h.messages.push(m);
+        h.messages
+            .push(message(3, "e-all", "c-mine", false, "and everyone"));
+    }
+    bob.wait_for("bob's message", is("e-for-bob"));
+    alice.wait_for("the message for everyone", is("e-all"));
+    assert!(
+        !alice.notifications.iter().any(is("e-for-bob")),
+        "alice was handed bob's conversation"
+    );
+    assert!(
+        !alice.notifications.iter().any(is("e-queued")),
+        "alice was handed bob's backlog"
+    );
+    alice.stop();
     bob.stop();
 }
 

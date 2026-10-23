@@ -254,6 +254,9 @@ struct Conversation {
     state: Option<String>,
     title: String,
     target: String,
+    /// The session this conversation is with, when it is one (SPEC-166
+    /// phase C): every message in it is for that name.
+    session_name: Option<String>,
 }
 
 /// The chat half of the device host.
@@ -421,6 +424,7 @@ impl Chat {
             state: None,
             title: "Operator".into(),
             target: OPERATOR_LANE_TARGET.into(),
+            session_name: None,
         }];
         for c in v["conversations"].as_array().into_iter().flatten() {
             let conversation_row = if c["conversation"].is_object() {
@@ -449,10 +453,23 @@ impl Chat {
                     .as_str()
                     .unwrap_or("")
                     .to_owned(),
+                session_name: c["session_name"]
+                    .as_str()
+                    .and_then(|n| crate::mcp::names::normalise(n).ok()),
             });
         }
         *self.conversations.lock().await = out.clone();
         Ok(out)
+    }
+
+    /// The session `conversation` is with, when it is one.
+    async fn session_of(&self, conversation: &str) -> Option<String> {
+        self.conversations
+            .lock()
+            .await
+            .iter()
+            .find(|c| c.id == conversation)
+            .and_then(|c| c.session_name.clone())
     }
 
     async fn lane_of(&self, conversation: &str) -> &'static str {
@@ -512,6 +529,7 @@ impl Chat {
                     _ => m.from_airdress.clone(),
                 };
                 let lane = self.lane_of(&m.conversation_id).await;
+                let for_session = self.session_of(&m.conversation_id).await;
                 self.keep(Message {
                     seq: 0,
                     message_id: m.envelope_id.clone(),
@@ -525,6 +543,7 @@ impl Chat {
                         .as_deref()
                         .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
                         .map_or_else(Utc::now, |t| t.with_timezone(&Utc)),
+                    for_session,
                 })
                 .await?;
             }
@@ -545,6 +564,12 @@ impl Chat {
                 conversation_id, ..
             } => {
                 tracing::info!(%conversation_id, "agent chat: joined a conversation");
+                // A conversation with a named session says so only in the
+                // listing; learn it before its first message is kept.
+                self.refresh(api)
+                    .await
+                    .map(|_| ())
+                    .log_warn("agent chat: refreshing conversations");
             }
             Event::Removed { conversation_id } => {
                 tracing::info!(%conversation_id, "agent chat: removed from a conversation");
@@ -783,7 +808,14 @@ impl Chat {
             t.here(Instant::now())
         };
         let Some(after) = req["after"].as_i64() else {
-            return json!({"ok": true, "messages": [], "head": head().await,
+            // A session's first wait starts at the head, but what was
+            // written for its name while no session of that name waited
+            // is handed now, once (SPEC-166 FR-23).
+            let waiting = match &named {
+                Some((name, _)) => self.hand_over(name, None).await,
+                None => Vec::new(),
+            };
+            return json!({"ok": true, "messages": waiting, "head": head().await,
                           "names_here": names_here(&named)});
         };
         let timeout =
@@ -795,9 +827,37 @@ impl Chat {
             let _woken = tokio::time::timeout(timeout, notified).await.is_ok();
         }
         let mut v = self.read(&json!({"after": after, "limit": 100})).await;
+        if let Some((name, _)) = &named {
+            let read: Vec<Message> =
+                serde_json::from_value(v["messages"].clone()).unwrap_or_default();
+            self.hand_over(name, Some(&read)).await;
+        }
         v["head"] = json!(head().await);
         v["names_here"] = json!(names_here(&named));
         v
+    }
+
+    /// Record that the session `name` was handed `read`; with `None`, find
+    /// and record what is still waiting for it. A store that cannot be
+    /// written hands the messages anyway: losing the record repeats them
+    /// at the next start, which is better than losing them.
+    async fn hand_over(&self, name: &str, read: Option<&[Message]>) -> Vec<Message> {
+        let mut guard = self.messages.lock().await;
+        let Some(store) = guard.as_mut() else {
+            return Vec::new();
+        };
+        let waiting = match read {
+            Some(r) => r.to_vec(),
+            None => store.undelivered_for(name, 100),
+        };
+        store
+            .handed(name, &waiting)
+            .log_warn("agent chat: recording what a session was handed");
+        if read.is_some() {
+            Vec::new()
+        } else {
+            waiting
+        }
     }
 
     async fn send(&self, creds: &Credentials, req: &Value) -> Result<Value> {
@@ -877,6 +937,7 @@ impl Chat {
             from_self: true,
             text,
             at: Utc::now(),
+            for_session: None,
         })
         .await?;
         Ok(json!({"ok": true, "message_id": id}))

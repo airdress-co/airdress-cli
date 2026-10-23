@@ -111,6 +111,11 @@ pub async fn call(
                 // Nothing is hidden from a read: a message for another
                 // session is returned, and says so (design §5.4).
                 for m in items.iter_mut() {
+                    if let Some(only) = m["for_session"].as_str() {
+                        let mine = only == me;
+                        m["addressed_to_this_session"] = json!(mine);
+                        continue;
+                    }
                     let mentioned =
                         names::local_names(m["text"].as_str().unwrap_or_default(), fqdn);
                     let live = if mentioned.is_empty() || mentioned.contains(&me) {
@@ -275,6 +280,19 @@ pub async fn start(session: Arc<Session>) {
                     // them is interrupted (design §5.3). A message for
                     // another live session is not pushed here; `chat_read`
                     // still returns it.
+                    // A conversation with one named session: everything in
+                    // it is for that session, whatever it mentions
+                    // (SPEC-166 phase C).
+                    if let Some(only) = m["for_session"].as_str() {
+                        if only != me {
+                            continue;
+                        }
+                        let mut n = notification(m);
+                        n["params"]["meta"]["session_name"] = json!(me);
+                        n["params"]["meta"]["addressed"] = json!(Addressed::ThisSession.as_str());
+                        session.notify(n).await;
+                        continue;
+                    }
                     let mentioned =
                         names::local_names(m["text"].as_str().unwrap_or_default(), &fqdn);
                     let live = if mentioned.is_empty() || mentioned.contains(&me) {

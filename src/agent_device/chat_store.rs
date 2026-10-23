@@ -45,6 +45,11 @@ pub struct Message {
     pub from_self: bool,
     pub text: String,
     pub at: DateTime<Utc>,
+    /// The one session this message is for, when it was written in a
+    /// conversation with a named session (SPEC-166 phase C): every message
+    /// there is for that name, whatever it mentions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub for_session: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -55,6 +60,11 @@ struct Doc {
     /// Envelope ids already stored, so a replayed envelope is one message.
     #[serde(default)]
     seen: Vec<String>,
+    /// Session name → the highest `seq` of a message for that name a
+    /// session of that name has been handed, so what arrived while nobody
+    /// of that name waited is handed at its next wait, once.
+    #[serde(default)]
+    delivered: BTreeMap<String, i64>,
 }
 
 /// The store, open.
@@ -168,6 +178,44 @@ impl ChatStore {
         }
     }
 
+    /// Messages for session `name` it has not been handed yet, oldest
+    /// first, at most `limit`: what arrived while no session of that name
+    /// waited. Bounded by what the store keeps (the last thousand per
+    /// conversation, thirty days).
+    pub fn undelivered_for(&self, name: &str, limit: usize) -> Vec<Message> {
+        let since = self.doc.delivered.get(name).copied().unwrap_or(0);
+        let mut out: Vec<Message> = self
+            .doc
+            .conversations
+            .values()
+            .flatten()
+            .filter(|m| m.seq > since && !m.from_self && m.for_session.as_deref() == Some(name))
+            .cloned()
+            .collect();
+        out.sort_by_key(|m| m.seq);
+        out.truncate(limit);
+        out
+    }
+
+    /// Record that a session named `name` was handed `messages`: those for
+    /// it no longer wait for its next start.
+    pub fn handed(&mut self, name: &str, messages: &[Message]) -> Result<()> {
+        let Some(top) = messages
+            .iter()
+            .filter(|m| m.for_session.as_deref() == Some(name))
+            .map(|m| m.seq)
+            .max()
+        else {
+            return Ok(());
+        };
+        let at = self.doc.delivered.entry(name.to_owned()).or_insert(0);
+        if top <= *at {
+            return Ok(());
+        }
+        *at = top;
+        self.save()
+    }
+
     /// Messages after `after` (exclusive), in one conversation or all,
     /// oldest first, at most `limit`.
     pub fn read(&self, conversation: Option<&str>, after: i64, limit: usize) -> Vec<Message> {
@@ -207,6 +255,7 @@ mod tests {
             from_self: false,
             text: format!("text {id}"),
             at,
+            for_session: None,
         }
     }
 
@@ -265,5 +314,35 @@ mod tests {
         let c2 = s.read(Some("c2"), 0, usize::MAX);
         assert_eq!(c2.len(), KEEP_PER_CONVERSATION);
         assert_eq!(c2[0].message_id, "m5");
+    }
+
+    #[test]
+    fn what_was_written_for_a_name_waits_for_it_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = ChatStore::open(dir.path(), [7; 32]).unwrap();
+        let now = Utc::now();
+        let for_ = |id: &str, name: Option<&str>| Message {
+            for_session: name.map(str::to_owned),
+            ..msg(id, "c-bob", now)
+        };
+        s.append(for_("e1", Some("bob")), now).unwrap();
+        s.append(for_("e2", Some("dave")), now).unwrap();
+        s.append(for_("e3", None), now).unwrap();
+        let waiting = s.undelivered_for("bob", 100);
+        assert_eq!(
+            waiting
+                .iter()
+                .map(|m| m.message_id.as_str())
+                .collect::<Vec<_>>(),
+            ["e1"]
+        );
+        s.handed("bob", &waiting).unwrap();
+        assert!(s.undelivered_for("bob", 100).is_empty(), "handed once");
+        // Reopened: the record survives a restart of the host.
+        let mut s = ChatStore::open(dir.path(), [7; 32]).unwrap();
+        assert!(s.undelivered_for("bob", 100).is_empty());
+        s.append(for_("e4", Some("bob")), now).unwrap();
+        assert_eq!(s.undelivered_for("bob", 100).len(), 1, "a newer one waits");
+        assert_eq!(s.undelivered_for("dave", 100).len(), 1);
     }
 }
