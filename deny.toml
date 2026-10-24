@@ -46,6 +46,7 @@ ignore = [
   "RUSTSEC-2026-0370",
   "RUSTSEC-2026-0371",
   "RUSTSEC-2026-0372",
+  # cspell:ignore rustcrypto CHACHA
   # 2026-10-24: crypto-bigint 0.5 timing variability; fixed only in 0.7.6
   # (0.7 is updated). 0.5 reaches us through p256 0.13 in two places, and
   # neither runs a secret through it: mls-rs-crypto-rustcrypto compiles P-256
