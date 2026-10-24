@@ -113,6 +113,11 @@ pub struct ServeArgs {
     /// random name.
     #[arg(long, default_value = "")]
     pub configured_session_name: String,
+    /// Let the sessions of this airdress owner's contacts reach this one by
+    /// `<name>@<this airdress>` from their own airdresses. Needs a session
+    /// name and an operator that federates; off by default.
+    #[arg(long, default_value = "false")]
+    pub reachable_from_contacts: String,
 }
 
 impl ServeArgs {
@@ -142,6 +147,8 @@ impl ServeArgs {
                 .map(str::to_owned)
                 .collect(),
             bus_label: non_empty(self.bus_label),
+            reachable_from_contacts: parse_flag(&self.reachable_from_contacts, false)
+                .map_err(|e| anyhow::anyhow!("--reachable-from-contacts: {e}"))?,
             session_name: {
                 let env = std::env::var(names::ENV).ok();
                 names::resolve(
@@ -212,6 +219,7 @@ mod tests {
             bus_label: String::new(),
             session_name: String::new(),
             configured_session_name: String::new(),
+            reachable_from_contacts: String::new(),
         }
     }
 

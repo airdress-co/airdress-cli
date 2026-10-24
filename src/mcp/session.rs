@@ -53,6 +53,9 @@ pub struct ServeOpts {
     pub bus_topics: Vec<String>,
     /// Session label. Empty means `<host> · <repo>`.
     pub bus_label: Option<String>,
+    /// Reachable from the owner's contacts' sessions on their airdresses
+    /// (SPEC-166 D-12). Sent only to an operator that federates.
+    pub reachable_from_contacts: bool,
     /// The session's name, where it came from, and why a higher-ranked
     /// value was passed over; see [`crate::mcp::names`].
     pub session_name: crate::mcp::names::Resolved,
@@ -75,6 +78,7 @@ impl Default for ServeOpts {
             bus: false,
             bus_topics: vec!["general".into()],
             bus_label: None,
+            reachable_from_contacts: false,
             session_name: crate::mcp::names::Resolved {
                 name: crate::mcp::names::random(),
                 source: crate::mcp::names::Source::Random,

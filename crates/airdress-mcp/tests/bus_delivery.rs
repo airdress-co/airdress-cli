@@ -68,6 +68,9 @@ struct Bus {
     by_name: Vec<Value>,
     /// Registrations refused for their name.
     refused: Vec<Value>,
+    /// An operator that reaches a paired operator's sessions (SPEC-166
+    /// §11.3b): `/info` says so and a post to `name@<fqdn>` is taken.
+    federates: bool,
 }
 
 /// A peer's device-signed message.
@@ -213,9 +216,13 @@ fn spawn_operator(bus: Arc<Mutex<Bus>>, ours: SigningKey) -> u16 {
                     ("GET", _, "/info") => {
                         let mut info = json!({"protocol": 1, "airdress": AIRDRESS,
                                 "limits": {"heartbeat_seconds": 30, "claim_ttl_default_seconds": 300}});
-                        if bus.lock().unwrap().keeps_names {
+                        let b = bus.lock().unwrap();
+                        if b.federates {
+                            info["features"] = json!(["session_names", "federation"]);
+                        } else if b.keeps_names {
                             info["features"] = json!(["session_names"]);
                         }
+                        drop(b);
                         respond(&mut stream, 200, &info);
                     }
                     ("POST", _, "/sessions") => {
@@ -321,6 +328,21 @@ fn spawn_operator(bus: Arc<Mutex<Bus>>, ours: SigningKey) -> u16 {
                             &json!({"items": items, "next_cursor": next}),
                         );
                     }
+                    ("GET", _, r) if r.starts_with("/messages/") && r.ends_with("/thread") => {
+                        let id = r
+                            .trim_start_matches("/messages/")
+                            .trim_end_matches("/thread")
+                            .to_owned();
+                        let items: Vec<Value> = bus
+                            .lock()
+                            .unwrap()
+                            .items
+                            .iter()
+                            .filter(|i| i["id"] == id.as_str())
+                            .cloned()
+                            .collect();
+                        respond(&mut stream, 200, &json!({"items": items}));
+                    }
                     ("POST", _, r) if r.starts_with("/messages/") && r.ends_with("/acks") => {
                         let id = r
                             .trim_start_matches("/messages/")
@@ -336,7 +358,7 @@ fn spawn_operator(bus: Arc<Mutex<Bus>>, ours: SigningKey) -> u16 {
                         check_write(&req.body, &ours);
                         verify_signature("message.post", &format!("name:{to}"), &req.body, &ours);
                         let mut b = bus.lock().unwrap();
-                        if b.held.contains_key(&to) {
+                        if b.held.contains_key(&to) || (b.federates && to.contains('@')) {
                             b.by_name.push(req.body.clone());
                             drop(b);
                             respond(&mut stream, 201, &json!({"id": "n-1", "seq": 1}));
@@ -943,6 +965,123 @@ fn an_operator_that_keeps_names_settles_them() {
     );
     assert_eq!(sent["result"]["isError"], false, "{sent}");
     assert_eq!(bus.lock().unwrap().by_name[0]["to_name"], "tester");
+    assert!(bus.lock().unwrap().direct.is_empty());
+
+    drop(server.stdin.take());
+    assert!(server.child.wait().unwrap().success());
+}
+
+/// SPEC-166 §11.3b: against an operator that federates, an opted-in
+/// session registers as reachable, a post to `name@<fqdn>` goes by name to
+/// the operator, and a reply to a message from another airdress is
+/// addressed to its sender there.
+#[test]
+fn an_operator_that_federates_reaches_another_airdress() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("state");
+    let ours = SigningKey::from_bytes(&[0x31; 32]);
+    let bus = Arc::new(Mutex::new(Bus {
+        keeps_names: true,
+        federates: true,
+        ..Bus::default()
+    }));
+    // A message from `alice` on another airdress, as the operator stores it.
+    bus.lock().unwrap().items.push(json!({
+        "id": "fed-1", "cursor": 1, "stream": "session:s-ours", "seq": 1, "kind": "message",
+        "from_session": null, "from_remote": "y.example", "from_name": "alice",
+        "content": "what is 3 plus 4?",
+        "attestation": {"airdress": "y.example", "signed_by": "device"},
+    }));
+    let op_port = spawn_operator(Arc::clone(&bus), ours.clone());
+    let hub_port = spawn_hub();
+    let operator_host = format!("127.0.0.1:{op_port}");
+    profile_store(home.path(), hub_port, &operator_host);
+    spawn_device_host(
+        &airdress::agent_bus::socket::socket_path(
+            &airdress::agent_bus::socket::device_dir(&state, &operator_host),
+            None,
+        ),
+        ours.clone(),
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_airdress-mcp"))
+        .args([
+            "--harness",
+            "test-harness",
+            "--profile",
+            "default",
+            "--default-airdress",
+            &operator_host,
+            "--bus",
+            "true",
+            "--bus-topics",
+            "general",
+            "--session-name",
+            "bob",
+            "--reachable-from-contacts",
+            "true",
+            "--state-dir",
+        ])
+        .arg(&state)
+        .env("HOME", home.path())
+        .env_remove("AIRDRESS_SESSION_NAME")
+        .env("AIRDRESS_OPERATOR_URL", format!("http://{operator_host}"))
+        .env("NO_PROXY", "127.0.0.1,localhost")
+        .env("no_proxy", "127.0.0.1,localhost")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("start airdress-mcp");
+    let (tx, rx) = mpsc::channel();
+    let stdout = child.stdout.take().unwrap();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                break;
+            };
+            if tx.send(v).is_err() {
+                break;
+            }
+        }
+    });
+    let mut server = Server {
+        stdin: child.stdin.take(),
+        child,
+        lines: rx,
+        notifications: Vec::new(),
+    };
+    server.call(
+        1,
+        "initialize",
+        json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "0"}}),
+    );
+    wait_until("registration", || {
+        !bus.lock().unwrap().registered.is_empty()
+    });
+    let reg = bus.lock().unwrap().registered[0].clone();
+    assert_eq!(reg["name"], "bob");
+    assert_eq!(reg["reachable"], "contacts", "{reg}");
+
+    // A post to another airdress goes by name, signed for that name.
+    let sent = server.call(
+        2,
+        "tools/call",
+        json!({"name": "bus_post", "arguments": {"to_session": "@Carol@Y.Example", "content": "hi"}}),
+    );
+    assert_eq!(sent["result"]["isError"], false, "{sent}");
+    assert_eq!(bus.lock().unwrap().by_name[0]["to_name"], "carol@y.example");
+
+    // A reply to alice's message goes back to alice there.
+    let replied = server.call(
+        3,
+        "tools/call",
+        json!({"name": "bus_reply", "arguments": {"message_id": "fed-1", "content": "7"}}),
+    );
+    assert_eq!(replied["result"]["isError"], false, "{replied}");
+    let reply = bus.lock().unwrap().by_name[1].clone();
+    assert_eq!(reply["to_name"], "alice@y.example", "{reply}");
+    assert_eq!(reply["in_reply_to"], "fed-1", "{reply}");
     assert!(bus.lock().unwrap().direct.is_empty());
 
     drop(server.stdin.take());

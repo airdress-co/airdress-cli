@@ -280,9 +280,57 @@ pub(crate) async fn own_session_id(session: &Arc<Session>, fqdn: &str) -> Option
 /// Whether this airdress's operator keeps session names itself (SPEC-166
 /// phase B), as its `/info` says.
 fn operator_names(info: &Value) -> bool {
+    has_feature(info, "session_names")
+}
+
+/// Whether the operator reaches a paired operator's sessions by
+/// `name@<fqdn>` and takes `reachable` on a register (SPEC-166 §11.3b).
+fn operator_federates(info: &Value) -> bool {
+    has_feature(info, "federation")
+}
+
+fn has_feature(info: &Value, feature: &str) -> bool {
     info["features"]
         .as_array()
-        .is_some_and(|f| f.iter().any(|x| x == "session_names"))
+        .is_some_and(|f| f.iter().any(|x| x == feature))
+}
+
+/// `bob@x.example` → `("bob", "x.example")`, lowercased; `None` for a
+/// name or an id on this airdress.
+fn remote_name(to: &str) -> Option<(String, String)> {
+    let (name, fqdn) = to.trim().trim_start_matches('@').split_once('@')?;
+    (!name.is_empty() && fqdn.contains('.'))
+        .then(|| (name.to_ascii_lowercase(), fqdn.to_ascii_lowercase()))
+}
+
+/// Post `body` to the session named `name` on another airdress, through
+/// this airdress's operator.
+async fn post_remote(
+    session: &Arc<Session>,
+    l: &Arc<Link>,
+    name: &str,
+    fqdn: &str,
+    body: &Value,
+) -> Result<Value> {
+    if !operator_federates(&l.info) {
+        bail!(
+            "this airdress's operator does not reach other airdresses' sessions \
+             (it is off there, or the operator is older)"
+        );
+    }
+    let to = format!("{name}@{fqdn}");
+    let mut by_name = body.clone();
+    by_name["to_name"] = json!(to);
+    write(
+        session,
+        l,
+        Method::POST,
+        "/messages",
+        "message.post",
+        &format!("name:{to}"),
+        &by_name,
+    )
+    .await
 }
 
 /// Tell the person the session took another name, on the bus notices and
@@ -355,6 +403,12 @@ async fn register(session: &Arc<Session>, l: &Arc<Link>, stale: Option<&str>) ->
         if named {
             body["name"] = json!(session.name());
             body["pinned"] = json!(session.name_pinned());
+            // Opted in: the owner's contacts' sessions may reach it by name
+            // from their airdresses (SPEC-166 D-12). This link signs as a
+            // device, which that needs; only an operator that says so takes it.
+            if session.opts.reachable_from_contacts && operator_federates(&l.info) {
+                body["reachable"] = json!("contacts");
+            }
         }
         attest(
             &l.signer,
@@ -1273,6 +1327,10 @@ async fn write_tool(
                     if s(args, "fence").is_some() {
                         bail!("a direct message cannot be fenced; post to the claim's topic");
                     }
+                    if let Some((name, fqdn)) = remote_name(to) {
+                        let v = post_remote(session, &l, &name, &fqdn, &body).await?;
+                        return Ok(written(v, "sent to another airdress"));
+                    }
                     // A name goes to the operator when it keeps names, so
                     // the session it resolves to is the one live at the
                     // moment of the post. A name only a phase A label
@@ -1330,7 +1388,14 @@ async fn write_tool(
             let mut body = message_body(args, need(args, "content")?);
             body["in_reply_to"] = json!(parent);
             let stream = original["stream"].as_str().unwrap_or_default();
-            let v = if let Some(t) = stream.strip_prefix("topic:") {
+            let v = if let Some(remote) = original["from_remote"].as_str() {
+                // From another airdress: answered by name, and the operator
+                // tells the other side which of its messages this answers.
+                let name = original["from_name"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("the message names no session to reply to"))?;
+                post_remote(session, &l, name, remote, &body).await?
+            } else if let Some(t) = stream.strip_prefix("topic:") {
                 fenced(session, &l, t, args, &mut body).await?;
                 write(
                     session,

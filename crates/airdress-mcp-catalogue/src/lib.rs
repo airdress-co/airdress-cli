@@ -791,7 +791,14 @@ fn bus_tools(tools: &mut Vec<Tool>) {
             {
                 let mut p = vec![
                     topic_arg(),
-                    ("to_session", text("A session id, for a direct message.")),
+                    (
+                        "to_session",
+                        text(
+                            "For a direct message: a session id or name, or name@airdress for \
+                             a named session on another airdress (it must have opted in, and \
+                             the two airdresses must be paired).",
+                        ),
+                    ),
                     ("content", text("The message text, at most 16 KiB.")),
                 ];
                 p.extend(data_args());

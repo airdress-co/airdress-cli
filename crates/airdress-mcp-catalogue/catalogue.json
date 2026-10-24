@@ -957,7 +957,7 @@
             "type": "string"
           },
           "to_session": {
-            "description": "A session id, for a direct message.",
+            "description": "For a direct message: a session id or name, or name@airdress for a named session on another airdress (it must have opted in, and the two airdresses must be paired).",
             "type": "string"
           },
           "topic": {

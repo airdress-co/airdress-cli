@@ -241,7 +241,9 @@ fn naming(name: &str) -> String {
          asking whether they meant that name with an @ before it; otherwise \
          stay silent. chat_send prefixes your words with \"{name}: \" \
          so the people in the conversation can tell this machine's sessions \
-         apart. bus_post's to_session takes a session name as well as an id."
+         apart. bus_post's to_session takes a session name as well as an id, \
+         and name@airdress reaches a session on another airdress; a message \
+         from one carries from_remote, and bus_reply answers it there."
     )
 }
 

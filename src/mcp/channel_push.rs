@@ -89,6 +89,10 @@ pub fn notification(item: &Value, verdict: &Verdict) -> Value {
     if verdict.signed_by == "operator" {
         content = format!("[operator-attested] {content}");
     }
+    if let Some(remote) = item["from_remote"].as_str() {
+        let from = item["from_name"].as_str().unwrap_or("a session");
+        content = format!("[from {from}@{remote}] {content}");
+    }
     match (&verdict.key_change, verdict.valid) {
         (_, true) => {}
         (Some(c), false) if c.enrollment.is_none() => {
@@ -114,6 +118,9 @@ pub fn notification(item: &Value, verdict: &Verdict) -> Value {
     put("from_session", s("from_session"));
     put("from_label", s("from_label"));
     put("from_principal", s("from_principal"));
+    // From another airdress: reply with bus_reply, or to `from_name@from_remote`.
+    put("from_remote", s("from_remote"));
+    put("from_name", s("from_name"));
     put("message_id", s("id"));
     put("seq", item["seq"].as_i64().map(|n| n.to_string()));
     put("in_reply_to", s("in_reply_to"));
@@ -245,5 +252,17 @@ mod tests {
         let keys: Vec<&String> = caps.as_object().unwrap().keys().collect();
         assert_eq!(keys, vec![CAPABILITY]);
         assert!(!caps.to_string().contains("permission"));
+    }
+
+    #[test]
+    fn a_message_from_another_airdress_names_its_sender_there() {
+        let mut it = item();
+        it["from_remote"] = json!("y.example");
+        it["from_name"] = json!("alice");
+        let n = notification(&it, &verdict("peer", true));
+        let content = n["params"]["content"].as_str().unwrap();
+        assert!(content.starts_with("[from alice@y.example] "), "{content}");
+        assert_eq!(n["params"]["meta"]["from_remote"], "y.example");
+        assert_eq!(n["params"]["meta"]["from_name"], "alice");
     }
 }

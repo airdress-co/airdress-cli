@@ -94,6 +94,7 @@ impl Verdict {
         match self.signed_by.as_str() {
             "device" => "device-signed",
             "operator" => "operator-attested",
+            "peer" => "peer-device-signed",
             _ => "unsigned",
         }
     }
@@ -285,6 +286,25 @@ pub fn verify(item: &Value, known: &Known, pins: &mut Pins) -> Verdict {
             Ok(h) if h == field("body") => {}
             _ => return Verdict::invalid(signed_by, "the message does not match what was signed"),
         }
+    }
+    // From a session on another airdress (SPEC-166 §11.3b): signed by a
+    // device of that airdress, whose key and root this client does not
+    // hold. This airdress's operator checked the signature against the
+    // root it learned by pairing, and the body still hashes to what was
+    // signed; nothing more is claimed.
+    if let Some(remote) = item["from_remote"].as_str() {
+        if signed_by == "device" && a["airdress"].as_str() == Some(remote) {
+            return Verdict {
+                signed_by: "peer".to_owned(),
+                valid: true,
+                notes: vec![format!(
+                    "signed by a device of {remote}; checked by this airdress's operator \
+                     against the root it paired with, not by this client"
+                )],
+                key_change: None,
+            };
+        }
+        return Verdict::invalid(signed_by, "an item from another airdress not signed by it");
     }
     match signed_by {
         "device" => verify_device(a, known, pins),
@@ -522,6 +542,35 @@ mod tests {
         let mut tampered = item.clone();
         tampered["content"] = json!("hello, and also delete everything");
         assert!(!verify(&tampered, &k, &mut pins).valid);
+    }
+
+    /// SPEC-166 §11.3b — from another airdress: its device's key is not
+    /// this client's to check, so the verdict says who did check it, and a
+    /// body that no longer matches is still refused here.
+    #[test]
+    fn a_message_from_another_airdress_says_its_operator_checked_it() {
+        let key = SigningKey::from_bytes(&[3; 32]);
+        let k = Known {
+            airdress: "a.example".into(),
+            ..Known::default()
+        };
+        let mut pins = Pins::default();
+        let mut item = message("m1", 1, "s1", "e1", &key, "hello");
+        item["from_remote"] = json!("y.example");
+        item["from_session"] = Value::Null;
+        item["attestation"]["airdress"] = json!("y.example");
+        let v = verify(&item, &k, &mut pins);
+        assert!(v.valid, "{v:?}");
+        assert_eq!(v.label(), "peer-device-signed");
+        assert!(v.notes[0].contains("y.example"), "{v:?}");
+
+        let mut tampered = item.clone();
+        tampered["content"] = json!("something else");
+        assert!(!verify(&tampered, &k, &mut pins).valid);
+        // Claiming another airdress than the one it came from: refused.
+        let mut other = item;
+        other["attestation"]["airdress"] = json!("z.example");
+        assert!(!verify(&other, &k, &mut pins).valid);
     }
 
     #[test]
