@@ -283,3 +283,4 @@ zbus
 zvariant
 ctutils
 RUSTSEC
+widenings

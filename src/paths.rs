@@ -53,7 +53,13 @@ impl Paths {
         if let Some(d) = xdg("XDG_STATE_HOME") {
             p.state = d;
         }
-        p.runtime = xdg("XDG_RUNTIME_DIR");
+        // Without XDG_RUNTIME_DIR (a shell from ssh, a tmux server started
+        // without it), systemd's own per-user directory, when it exists:
+        // a device host and an editor started from different shells must
+        // derive the same socket path, or the editor finds "no device"
+        // beside a host that is running (measured on the framework, with
+        // the host in /run/user/<uid> and a session looking in /tmp).
+        p.runtime = xdg("XDG_RUNTIME_DIR").or_else(user_run_dir);
         Ok(p)
     }
 
@@ -125,6 +131,21 @@ impl Paths {
     pub fn pending_login_path(&self) -> PathBuf {
         self.config.join("pending-login")
     }
+}
+
+/// `/run/user/<uid>` when it is a directory: what systemd sets
+/// `XDG_RUNTIME_DIR` to, used when the variable is missing.
+#[cfg(unix)]
+fn user_run_dir() -> Option<PathBuf> {
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    let dir = PathBuf::from(format!("/run/user/{uid}"));
+    dir.is_dir().then_some(dir)
+}
+
+#[cfg(not(unix))]
+fn user_run_dir() -> Option<PathBuf> {
+    None
 }
 
 #[cfg(test)]
