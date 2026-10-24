@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.18](https://github.com/airdress-co/airdress-cli/compare/v0.1.17...v0.1.18) - 2026-10-24
+
+### Fixed
+
+- *(mcp)* A session finding the plugin's name held takes a random one
+
 ## [0.1.17](https://github.com/airdress-co/airdress-cli/compare/v0.1.16...v0.1.17) - 2026-10-24
 
 ### Added
