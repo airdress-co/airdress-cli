@@ -16,9 +16,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context as _, Result};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use serde_json::{json, Map, Value};
 
-use crate::agent_bus::socket;
+use crate::agent_bus::{session_sig, socket};
 use crate::mcp::channel_push::{self, meta_key_ok};
 use crate::mcp::names::{self, Addressed};
 use crate::mcp::names_live;
@@ -143,14 +145,17 @@ pub async fn call(
             }
             // The conversation sees only the device, so the words say
             // which of its sessions wrote them.
-            let text = signed_text(&session.name(), text);
+            let name = session.name();
+            let text = signed_text(&name, text);
             let text = text.as_str();
-            let v = ask(
-                session,
-                fqdn,
-                json!({"op": "chat.send", "conversation_id": conversation, "text": text}),
-            )
-            .await?;
+            let mut req = json!({"op": "chat.send", "conversation_id": conversation, "text": text});
+            // Signed by this session when the host has delegated to it and
+            // the conversation has a group (design §11.6); otherwise the
+            // phone shows the device, and the prefix stays plain text.
+            if let Some(by) = by_session(session, fqdn, conversation, &name, text).await {
+                req["by_session"] = by;
+            }
+            let v = ask(session, fqdn, req).await?;
             Ok(json!({
                 "message_id": v["message_id"],
                 "conversation_id": conversation,
@@ -160,6 +165,32 @@ pub async fn call(
         }
         other => bail!("no chat tool named {other}"),
     }
+}
+
+/// This session's signature for `text` in `conversation`, with the
+/// delegation it holds, when both a delegation for its current name and a
+/// group exist.
+async fn by_session(
+    session: &Arc<Session>,
+    fqdn: &str,
+    conversation: &str,
+    name: &str,
+    text: &str,
+) -> Option<Value> {
+    let delegation = session.session_delegation.lock().await.clone()?;
+    if delegation["session_name"].as_str() != Some(name) {
+        return None;
+    }
+    let g = ask(
+        session,
+        fqdn,
+        json!({"op": "chat.group", "conversation_id": conversation}),
+    )
+    .await
+    .ok()?;
+    let group = URL_SAFE_NO_PAD.decode(g["group_id"].as_str()?).ok()?;
+    let sig = session_sig::sign(&session.session_key, &group, name, text);
+    Some(json!({"delegation": delegation, "sig": sig}))
 }
 
 /// `<name>: <text>`, unless the text already starts that way (in any
@@ -231,6 +262,7 @@ pub async fn start(session: Arc<Session>) {
             "session_name": session.name(),
             "session_nonce": nonce,
             "session_pinned": session.name_pinned(),
+            "session_key": session_sig::encode_key(&session.session_key.verifying_key()),
         });
         match ask(&session, &fqdn, req).await {
             Ok(v) if v["name_taken"] == json!(true) => {
@@ -263,6 +295,10 @@ pub async fn start(session: Arc<Session>) {
             }
             Ok(v) => {
                 idle = IDLE_MIN;
+                if v["session_delegation"].is_object() {
+                    *session.session_delegation.lock().await =
+                        Some(v["session_delegation"].clone());
+                }
                 let me = session.name();
                 // The names waiting on this device host, when it is new
                 // enough to say; an older host leaves routing to the bus.
