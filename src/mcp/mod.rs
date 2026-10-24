@@ -23,6 +23,7 @@ pub mod chat;
 pub mod jsonrpc;
 pub mod names;
 pub mod names_live;
+pub mod origin;
 pub mod probe;
 pub mod reexport;
 pub mod server;

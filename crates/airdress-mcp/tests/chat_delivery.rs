@@ -568,6 +568,14 @@ fn a_mention_is_for_the_named_session_and_context_for_the_rest() {
     assert_eq!(meta["session_name"], "bob");
     assert_eq!(meta["mentions"], "bob");
     assert_eq!(to_bob["params"]["content"], "@bob what time is it?");
+    // Who it is from, and what it may ask (SPEC-166 phase E).
+    assert!(meta["origin"].is_string(), "{to_bob}");
+    assert!(
+        meta["origin_text"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("From ")),
+        "{to_bob}"
+    );
     let all_bob = bob.wait_for("the message for everyone, at bob", is("e-all"));
     assert_eq!(all_bob["params"]["meta"]["addressed"], "none");
     alice.wait_for("the message for everyone, at alice", is("e-all"));
