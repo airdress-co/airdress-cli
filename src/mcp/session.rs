@@ -249,17 +249,39 @@ impl Session {
     }
 
     /// Take another name (the configured one was held by a live session),
-    /// and say why.
-    pub fn rename(&self, name: String, why: String) {
+    /// and say why; returns the sentence said.
+    ///
+    /// The plugin's setting is shared by every session of the user on a
+    /// machine, so a second session holding it is no sign that this one is
+    /// "bob" too: it gets a random name rather than `bob-2`, and is told
+    /// how to choose one (measured on jefe-framework, where an unrelated
+    /// session became `bob-2`).
+    pub fn rename(&self, name: String, why: String) -> String {
+        let configured = &self.opts.session_name;
+        let (name, why) = if configured.source == crate::mcp::names::Source::Plugin
+            && self.name() == configured.name
+        {
+            let fresh = crate::mcp::names::random();
+            let why = format!(
+                "the plugin's session name {} is held by another session, so this session is \
+                 {fresh}; set {} for one launch to choose a name",
+                configured.name,
+                crate::mcp::names::ENV
+            );
+            (fresh, why)
+        } else {
+            (name, why)
+        };
         if let Ok(mut n) = self.name.write() {
             *n = name;
         }
         if let Ok(mut n) = self.name_note.write() {
             *n = Some(match n.take() {
                 Some(earlier) => format!("{earlier}; {why}"),
-                None => why,
+                None => why.clone(),
             });
         }
+        why
     }
 
     /// The highest chat sequence pushed for `fqdn` (0: none).

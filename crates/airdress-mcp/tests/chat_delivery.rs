@@ -688,6 +688,32 @@ fn the_device_host_settles_a_clash_and_knows_who_is_off_the_bus() {
         "{who}"
     );
 
+    // The plugin's setting is every session's on this machine: a session
+    // that finds it held is no "alice-3", it gets a random name and is told
+    // how to choose one.
+    let mut third = Server::start(
+        home.path(),
+        &state,
+        &operator_host,
+        &["--configured-session-name", "alice"],
+    );
+    third.wait_for("the plugin-name notice", |n| {
+        n["method"] == "notifications/claude/channel" && n["params"]["meta"]["kind"] == "notice"
+    });
+    let who = third.tool(2, "whoami", json!({}));
+    let w = &who["result"]["structuredContent"];
+    let name = w["session_name"].as_str().unwrap();
+    assert!(!name.starts_with("alice"), "{who}");
+    assert!(name.contains('-'), "a random adjective-noun: {who}");
+    assert!(
+        w["name_note"]
+            .as_str()
+            .unwrap()
+            .contains("AIRDRESS_SESSION_NAME"),
+        "{who}"
+    );
+    third.stop();
+
     // "@carol" is carol's, although the bus has never heard of her: alice
     // gets it as context, not as a typo to answer.
     std::thread::sleep(Duration::from_millis(400));

@@ -336,7 +336,7 @@ async fn post_remote(
 /// Tell the person the session took another name, on the bus notices and
 /// as a channel notice.
 async fn renamed(session: &Arc<Session>, got: String, why: String) {
-    session.rename(got, why.clone());
+    let why = session.rename(got, why);
     session.bus_notices.lock().await.push(why.clone());
     session
         .notify(json!({

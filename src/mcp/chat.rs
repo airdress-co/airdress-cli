@@ -292,7 +292,7 @@ pub async fn start(session: Arc<Session>) {
                 let why = format!(
                     "{want} is held by another session on this machine, so this session is {got}"
                 );
-                session.rename(got, why.clone());
+                let why = session.rename(got, why);
                 session
                     .notify(json!({
                         "jsonrpc": "2.0",
