@@ -138,6 +138,11 @@ async fn bus_client(session: &Session, fqdn: &str) -> Result<BusClient> {
     BusClient::new(&crate::mcp::operator_base(fqdn), bearer.expose().to_owned())
 }
 
+/// This server's state dir (the plugin's data directory, or the default).
+pub fn state_dir_of(session: &Session) -> Result<PathBuf> {
+    state_dir(session)
+}
+
 fn state_dir(session: &Session) -> Result<PathBuf> {
     match &session.opts.state_dir {
         Some(d) => Ok(d.clone()),

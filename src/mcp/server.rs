@@ -112,12 +112,18 @@ pub async fn serve(opts: ServeOpts) -> Result<()> {
             // method at all, should make no calls.
             if method == "initialize" && !refreshing {
                 refreshing = true;
-                // The bus session, likewise only once the client is answered.
-                tasks.spawn(
-                    cancel
-                        .child_token()
-                        .run_until_cancelled_owned(crate::mcp::bus::start(Arc::clone(&session))),
-                );
+                // The device host, if this machine joined one and nothing
+                // serves it; then the bus session, likewise only once the
+                // client is answered.
+                {
+                    let session = Arc::clone(&session);
+                    tasks.spawn(cancel.child_token().run_until_cancelled_owned(async move {
+                        if let Ok(t) = session.target(None).await {
+                            crate::mcp::host_spawn::ensure(&session, &t.fqdn).await;
+                        }
+                        crate::mcp::bus::start(session).await;
+                    }));
+                }
                 // Chat push, likewise: the device host holds the messages.
                 tasks.spawn(
                     cancel

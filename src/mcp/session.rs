@@ -189,6 +189,9 @@ pub struct Session {
     /// The owner's widenings per airdress, fetched at most every five
     /// minutes (SPEC-166 phase E).
     widenings: Mutex<HashMap<String, crate::mcp::origin::CachedWidenings>>,
+    /// The device host this server started, if it started one; it ends
+    /// with this process.
+    pub host_child: Mutex<Option<tokio::process::Child>>,
 }
 
 impl std::fmt::Debug for Session {
@@ -219,6 +222,7 @@ impl Session {
             session_key: crate::agent_bus::session_sig::new_key(),
             session_delegation: Mutex::new(None),
             widenings: Mutex::new(HashMap::new()),
+            host_child: Mutex::new(None),
         }
     }
 

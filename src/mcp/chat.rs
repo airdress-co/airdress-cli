@@ -49,11 +49,20 @@ pub fn host_socket(session: &Session, fqdn: &str) -> Result<PathBuf> {
 }
 
 /// The sentence for "nothing on this machine can read chat".
-fn no_host(fqdn: &str, e: &anyhow::Error) -> anyhow::Error {
+fn no_host(session: &Session, fqdn: &str, e: &anyhow::Error) -> anyhow::Error {
+    // Every step a person needs, in order: a newcomer had only "join one"
+    // and no way to get the binary (SPEC-166 F.2).
+    let dir = state_dir(session).map_or_else(
+        |_| "<the plugin's data directory>".into(),
+        |d| d.display().to_string(),
+    );
     anyhow::anyhow!(
         "chat is read and written by this machine's agent device, and none is serving for \
-         {fqdn} ({e:#}). Join one with `airdress-agent device join` and keep \
-         `airdress-agent device serve` running."
+         {fqdn} ({e:#}). To make this machine one: install `airdress-agent` from \
+         https://github.com/airdress-co/airdress-cli/releases (the `airdress-agent-<platform>` \
+         asset, checked against its .sha256) into ~/.local/bin, then run \
+         `airdress-agent device join --state-dir {dir} -A {fqdn} --harness claude-code` and \
+         approve it on your phone. Once it is joined, this server starts the device host itself."
     )
 }
 
@@ -61,7 +70,9 @@ async fn ask(session: &Session, fqdn: &str, req: Value) -> Result<Value> {
     let sock = host_socket(session, fqdn)?;
     match socket::call(&sock, &req).await {
         Ok(v) => Ok(v),
-        Err(e) if format!("{e:#}").contains("no device host is serving") => Err(no_host(fqdn, &e)),
+        Err(e) if format!("{e:#}").contains("no device host is serving") => {
+            Err(no_host(session, fqdn, &e))
+        }
         Err(e) => Err(e),
     }
 }

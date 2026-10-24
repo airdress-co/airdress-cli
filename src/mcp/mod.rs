@@ -20,6 +20,7 @@ pub mod bus;
 pub mod capabilities;
 pub mod channel_push;
 pub mod chat;
+pub mod host_spawn;
 pub mod jsonrpc;
 pub mod names;
 pub mod names_live;

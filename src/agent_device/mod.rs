@@ -121,8 +121,22 @@ async fn resolve(
     }
     let profile = storage::resolve_profile_name(paths, opts.auth_profile.as_deref())?;
     let hub = HubClient::from_profile(paths, &profile).await?;
-    let named = context::resolve(paths, &profile, explicit)?;
-    let fqdn = hub.resolve_fqdn(&named.name).await?;
+    // The MCP server's rule (`Session::target`): with nothing pinned, the
+    // one airdress on the account is the answer. A fresh machine signed in
+    // through the plugin has nothing pinned, and the join stopped there,
+    // so a person pinned the only choice by hand (SPEC-166 F.2).
+    let name = match context::resolve(paths, &profile, explicit) {
+        Ok(r) => r.name,
+        Err(e) if explicit.is_none() => {
+            let fleet = hub.list().await?;
+            match fleet.as_slice() {
+                [only] => only.name.clone(),
+                _ => return Err(e),
+            }
+        }
+        Err(e) => return Err(e),
+    };
+    let fqdn = hub.resolve_fqdn(&name).await?;
     let operator = opts.operator_url.as_deref().map_or_else(
         || format!("https://{fqdn}"),
         |u| u.trim_end_matches('/').to_owned(),
