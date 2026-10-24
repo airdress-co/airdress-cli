@@ -44,6 +44,7 @@ pub mod machine_admin;
 pub mod mcp;
 pub mod panic_exit;
 pub mod paths;
+pub mod peers;
 pub mod plugins;
 pub mod preferences;
 pub mod profile;

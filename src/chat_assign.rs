@@ -74,7 +74,7 @@ pub struct Operator {
 }
 
 impl Operator {
-    async fn connect(args: &RunArgs<'_>) -> Result<Self> {
+    pub(crate) async fn connect(args: &RunArgs<'_>) -> Result<Self> {
         let paths = args.paths;
         let profile = storage::resolve_profile_name(paths, args.profile)?;
         let hub = HubClient::from_profile(paths, &profile).await?;
@@ -97,7 +97,12 @@ impl Operator {
         })
     }
 
-    async fn request(&self, method: Method, path: &str, body: Option<&Value>) -> Result<Value> {
+    pub(crate) async fn request(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<Value> {
         let mut req = self
             .http
             .request(method.clone(), format!("{}{path}", self.base))

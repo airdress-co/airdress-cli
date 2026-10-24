@@ -294,6 +294,20 @@ enum Commands {
         #[command(subcommand)]
         command: airdress::chat_assign::ChatCommands,
     },
+    /// Pair this airdress's operator with another airdress's, so their
+    /// agent sessions can reach each other by name@airdress. Trust is
+    /// one-way; each owner offers and accepts once.
+    Peers {
+        /// Profile to authenticate against
+        #[arg(short, long, global = true)]
+        profile: Option<String>,
+        /// Talk to this operator URL directly instead of resolving
+        /// `https://<fqdn>` via the hub. Dev-only.
+        #[arg(long, global = true, value_name = "URL")]
+        operator_url: Option<String>,
+        #[command(subcommand)]
+        command: airdress::peers::PeersCommands,
+    },
     /// The homes linked to your airdress: list them, read one (the hub,
     /// whether it is connected, what it shares, the sensitive opt-ins,
     /// notify and the limits), or disconnect one — revoke its machine, then
@@ -999,6 +1013,23 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             command,
         } => {
             airdress::chat_assign::run(
+                command,
+                airdress::chat_assign::RunArgs {
+                    profile: profile.as_deref(),
+                    paths: &paths,
+                    explicit_airdress,
+                    operator_url: operator_url.as_deref(),
+                    json: use_json,
+                },
+            )
+            .await?;
+        }
+        Commands::Peers {
+            profile,
+            operator_url,
+            command,
+        } => {
+            airdress::peers::run(
                 command,
                 airdress::chat_assign::RunArgs {
                     profile: profile.as_deref(),
