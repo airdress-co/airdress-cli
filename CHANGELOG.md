@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.17](https://github.com/airdress-co/airdress-cli/compare/v0.1.16...v0.1.17) - 2026-10-24
+
+### Added
+
+- *(mcp)* Every message reaches every session; act only when addressed
+- *(agent)* Replies signed per session
+- *(mcp)* Say who each message is from and what it may ask
+
+### Fixed
+
+- *(paths)* The runtime dir falls back to /run/user/<uid>
+
+### Other
+
+- *(cspell)* Widenings
+- *(cspell)* Keep the word list's order; add widenings only
+
 ## [0.1.16](https://github.com/airdress-co/airdress-cli/compare/v0.1.15...v0.1.16) - 2026-10-24
 
 ### Fixed
