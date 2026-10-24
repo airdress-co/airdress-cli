@@ -24,6 +24,7 @@ use crate::agent_bus::{session_sig, socket};
 use crate::mcp::channel_push::{self, meta_key_ok};
 use crate::mcp::names::{self, Addressed};
 use crate::mcp::names_live;
+use crate::mcp::origin;
 use crate::mcp::session::{Session, Target};
 
 /// How long one `chat.wait` may be held by the host.
@@ -167,6 +168,13 @@ pub async fn call(
     }
 }
 
+/// Say who a message is from and what it may ask (SPEC-166 phase E).
+pub fn place(n: &mut Value, p: origin::Placed) {
+    let meta = &mut n["params"]["meta"];
+    meta["origin"] = json!(p.origin.as_str());
+    meta["origin_text"] = json!(p.text);
+}
+
 /// This session's signature for `text` in `conversation`, with the
 /// delegation it holds, when both a delegation for its current name and a
 /// group exist.
@@ -300,6 +308,11 @@ pub async fn start(session: Arc<Session>) {
                         Some(v["session_delegation"].clone());
                 }
                 let me = session.name();
+                let widenings = if v["messages"].as_array().is_some_and(|a| !a.is_empty()) {
+                    session.widenings(&fqdn).await
+                } else {
+                    origin::Widenings::default()
+                };
                 // The names waiting on this device host, when it is new
                 // enough to say; an older host leaves routing to the bus.
                 let host_here: Option<Vec<String>> = v["names_here"].as_array().map(|a| {
@@ -324,6 +337,7 @@ pub async fn start(session: Arc<Session>) {
                         let mut n = notification(m);
                         n["params"]["meta"]["session_name"] = json!(me);
                         n["params"]["meta"]["addressed"] = json!(Addressed::ThisSession.as_str());
+                        place(&mut n, origin::of_chat(m, &fqdn, &widenings));
                         session.notify(n).await;
                         continue;
                     }
@@ -340,6 +354,7 @@ pub async fn start(session: Arc<Session>) {
                     // and the instructions say to act only when addressed.
                     let a = names::route(&me, &mentioned, live.as_ref().map(|l| &l.others[..]));
                     let mut n = notification(m);
+                    place(&mut n, origin::of_chat(m, &fqdn, &widenings));
                     let meta = &mut n["params"]["meta"];
                     meta["session_name"] = json!(me);
                     meta["addressed"] = json!(a.as_str());

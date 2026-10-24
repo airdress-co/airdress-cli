@@ -186,6 +186,9 @@ pub struct Session {
     /// device host last gave it (SPEC-166 design §11.6).
     pub session_key: ed25519_dalek::SigningKey,
     pub session_delegation: Mutex<Option<serde_json::Value>>,
+    /// The owner's widenings per airdress, fetched at most every five
+    /// minutes (SPEC-166 phase E).
+    widenings: Mutex<HashMap<String, crate::mcp::origin::CachedWidenings>>,
 }
 
 impl std::fmt::Debug for Session {
@@ -215,6 +218,7 @@ impl Session {
             live_names: Mutex::new(None),
             session_key: crate::agent_bus::session_sig::new_key(),
             session_delegation: Mutex::new(None),
+            widenings: Mutex::new(HashMap::new()),
         }
     }
 
@@ -479,6 +483,28 @@ impl Session {
             .await
             .insert(fqdn.to_owned(), Cached::new(value));
         Ok(value)
+    }
+
+    /// The owner's widenings for `fqdn`; none when they cannot be read.
+    pub async fn widenings(&self, fqdn: &str) -> crate::mcp::origin::Widenings {
+        use crate::mcp::origin::{self, CachedWidenings, WIDENINGS_FRESH};
+        if let Some(c) = self.widenings.lock().await.get(fqdn) {
+            if c.at.elapsed() < WIDENINGS_FRESH {
+                return c.list.clone();
+            }
+        }
+        let list = match self.bearer(fqdn).await {
+            Ok(b) => origin::fetch(fqdn, b.expose()).await.unwrap_or_default(),
+            Err(_) => origin::Widenings::default(),
+        };
+        self.widenings.lock().await.insert(
+            fqdn.to_owned(),
+            CachedWidenings {
+                at: std::time::Instant::now(),
+                list: list.clone(),
+            },
+        );
+        list
     }
 
     /// Forget what we believe about an airdress's switches.

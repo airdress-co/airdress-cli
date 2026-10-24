@@ -893,9 +893,20 @@ async fn deliver(session: &Arc<Session>, l: &Arc<Link>, mut item: Value) {
         }
     }
     let verdict = label(session, l, &mut item).await;
-    session
-        .notify(channel_push::notification(&item, &verdict))
-        .await;
+    let mut n = channel_push::notification(&item, &verdict);
+    let mine = l
+        .known
+        .lock()
+        .await
+        .sessions
+        .get(&me)
+        .and_then(|r| r["principal_id"].as_str().map(str::to_owned));
+    let widenings = session.widenings(&l.fqdn).await;
+    crate::mcp::chat::place(
+        &mut n,
+        crate::mcp::origin::of_bus(&item, &verdict, &l.fqdn, mine.as_deref(), &widenings),
+    );
+    session.notify(n).await;
     {
         let mut d = l.delivery.lock().await;
         d.pushed(&id);
