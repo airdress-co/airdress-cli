@@ -84,7 +84,7 @@ this project may not ship, and `deny.toml` lists the ones it may.
 | [critical-section](https://github.com/rust-embedded/critical-section) | 1.2.0 | MIT OR Apache-2.0 |
 | [crossbeam-utils](https://github.com/crossbeam-rs/crossbeam) | 0.8.23 | MIT OR Apache-2.0 |
 | [crypto-bigint](https://github.com/RustCrypto/crypto-bigint) | 0.5.5 | Apache-2.0 OR MIT |
-| [crypto-bigint](https://github.com/RustCrypto/crypto-bigint) | 0.7.5 | Apache-2.0 OR MIT |
+| [crypto-bigint](https://github.com/RustCrypto/crypto-bigint) | 0.7.6 | Apache-2.0 OR MIT |
 | [crypto-common](https://github.com/RustCrypto/traits) | 0.1.7 | MIT OR Apache-2.0 |
 | [crypto-common](https://github.com/RustCrypto/traits) | 0.2.2 | MIT OR Apache-2.0 |
 | [ctr](https://github.com/RustCrypto/block-modes) | 0.9.2 | MIT OR Apache-2.0 |
