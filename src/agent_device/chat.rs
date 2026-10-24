@@ -39,6 +39,7 @@ use tokio::sync::{Mutex, Notify};
 
 use super::chat_store::{ChatStore, Message};
 use super::store::{AgentDevice, AgentStore};
+use crate::agent_bus::session_sig;
 use crate::log_err::LogErr as _;
 use crate::redact::Redacted;
 
@@ -781,8 +782,9 @@ impl Chat {
         let answer = match op {
             "chat.conversations" => self.conversations(&creds).await,
             "chat.read" => Ok(self.read(req).await),
-            "chat.wait" => Ok(self.wait(req).await),
-            "chat.send" => self.send(&creds, req).await,
+            "chat.wait" => Ok(self.wait_as(req, dev).await),
+            "chat.group" => Ok(self.group(req).await),
+            "chat.send" => self.send(&creds, req, dev).await,
             _ => return refusal("unknown_op", "no such chat operation"),
         };
         answer.unwrap_or_else(|e| refusal("failed", &format!("{e:#}")))
@@ -813,6 +815,47 @@ impl Chat {
         let msgs = store.read(req["conversation_id"].as_str(), after, limit);
         let next = msgs.last().map(|m| m.seq);
         json!({"ok": true, "messages": msgs, "next_cursor": next, "head": store.head()})
+    }
+
+    /// A wait, and for a named session that sent its key, the delegation
+    /// that lets it sign what it writes (design §11.6). Renewed on every
+    /// wait, so it lapses a day after the session stops waiting.
+    async fn wait_as(&self, req: &Value, dev: &AgentDevice) -> Value {
+        let mut v = self.wait(req).await;
+        if v["name_taken"] == json!(true) {
+            return v;
+        }
+        let name = req["session_name"]
+            .as_str()
+            .and_then(|n| crate::mcp::names::normalise(n).ok());
+        if let (Some(name), Some(key)) = (name, req["session_key"].as_str()) {
+            match session_sig::delegate(
+                &dev.identity,
+                &dev.record.airdress,
+                &dev.record.device_id,
+                &name,
+                key,
+                Utc::now(),
+            ) {
+                Ok(d) => v["session_delegation"] = d,
+                Err(e) => tracing::debug!(error = %e, "agent chat: no session delegation"),
+            }
+        }
+        v
+    }
+
+    /// The MLS group a conversation has on this device, if any: what a
+    /// session's signature binds.
+    async fn group(&self, req: &Value) -> Value {
+        let Some(conversation) = req["conversation_id"].as_str() else {
+            return refusal("bad_request", "conversation_id is required");
+        };
+        let guard = self.client.lock().await;
+        let group = guard
+            .as_ref()
+            .and_then(|c| c.directory().group_for(conversation))
+            .map(|g| URL_SAFE_NO_PAD.encode(g));
+        json!({"ok": true, "group_id": group})
     }
 
     async fn wait(&self, req: &Value) -> Value {
@@ -913,7 +956,43 @@ impl Chat {
         }
     }
 
-    async fn send(&self, creds: &Credentials, req: &Value) -> Result<Value> {
+    /// A session's signed send, checked (design §11.6), as the block's
+    /// `by_session`; `None` when the conversation has no group yet.
+    async fn by_session(
+        &self,
+        dev: &AgentDevice,
+        conversation: &str,
+        text: &str,
+        by: &Value,
+    ) -> std::result::Result<Option<Value>, Value> {
+        let group = {
+            let guard = self.client.lock().await;
+            guard
+                .as_ref()
+                .and_then(|c| c.directory().group_for(conversation))
+        };
+        let sig = by["sig"].as_str().unwrap_or_default();
+        let signed = session_sig::check_send(
+            &by["delegation"],
+            sig,
+            &dev.identity.verifying_key(),
+            &dev.record.airdress,
+            &dev.record.device_id,
+            text,
+            group.as_deref(),
+            Utc::now(),
+        )
+        .map_err(|r| refusal(r.code, &r.message))?;
+        Ok(signed.then(|| {
+            json!({
+                "delegation": by["delegation"],
+                "device_delegation": dev.record.delegation,
+                "sig": sig,
+            })
+        }))
+    }
+
+    async fn send(&self, creds: &Credentials, req: &Value, dev: &AgentDevice) -> Result<Value> {
         let conversation = req["conversation_id"]
             .as_str()
             .context("conversation_id is required")?
@@ -934,7 +1013,17 @@ impl Chat {
                  open the conversation on a phone that is in it",
             ));
         }
-        let payload = serde_json::to_vec(&json!([{"type": "text", "text": text}]))?;
+        let mut block = json!({"type": "text", "text": text});
+        if let Some(by) = req.get("by_session").filter(|b| b.is_object()) {
+            match self.by_session(dev, &conversation, &text, by).await {
+                Ok(Some(b)) => block["by_session"] = b,
+                // No group yet (the own lane's first message): sent as the
+                // device, its prefix plain text.
+                Ok(None) => {}
+                Err(refused) => return Ok(refused),
+            }
+        }
+        let payload = serde_json::to_vec(&json!([block]))?;
         let encrypted = {
             let mut guard = self.client.lock().await;
             let client = guard.as_mut().context("chat is not open")?;

@@ -182,6 +182,10 @@ pub struct Session {
     name_note: std::sync::RwLock<Option<String>>,
     /// The names live on the bus, and when they were read.
     live_names: Mutex<Option<(std::time::Instant, crate::mcp::names_live::LiveNames)>>,
+    /// This session's own key, in memory only, and the delegation the
+    /// device host last gave it (SPEC-166 design §11.6).
+    pub session_key: ed25519_dalek::SigningKey,
+    pub session_delegation: Mutex<Option<serde_json::Value>>,
 }
 
 impl std::fmt::Debug for Session {
@@ -209,6 +213,8 @@ impl Session {
             name: std::sync::RwLock::new(opts_name),
             name_note: std::sync::RwLock::new(opts_note),
             live_names: Mutex::new(None),
+            session_key: crate::agent_bus::session_sig::new_key(),
+            session_delegation: Mutex::new(None),
         }
     }
 
