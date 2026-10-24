@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.15](https://github.com/airdress-co/airdress-cli/compare/v0.1.14...v0.1.15) - 2026-10-24
+
+### Added
+
+- *(mcp)* Reach a named session on another airdress
+- *(peers)* Pair with another airdress's operator
+
+### Fixed
+
+- *(agent)* Learn a conversation's other airdress's root before joining it (166-D.3)
+- *(deps)* Crypto-bigint 0.7.6 for RUSTSEC-2026-0387; 0.5 recorded as not reached
+
+### Other
+
+- *(deny)* Spell-check words in the crypto-bigint note
+
 ## [0.1.14](https://github.com/airdress-co/airdress-cli/compare/v0.1.13...v0.1.14) - 2026-10-23
 
 ### Added
