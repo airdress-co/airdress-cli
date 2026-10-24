@@ -277,9 +277,7 @@ pub async fn start(session: Arc<Session>) {
                     }
                     // Every session on this machine receives every message
                     // from the one device host; a name decides which of
-                    // them is interrupted (design §5.3). A message for
-                    // another live session is not pushed here; `chat_read`
-                    // still returns it.
+                    // them is meant to act (design §5.3, D-14).
                     // A conversation with one named session: everything in
                     // it is for that session, whatever it mentions
                     // (SPEC-166 phase C).
@@ -301,10 +299,10 @@ pub async fn start(session: Arc<Session>) {
                         let bus = names_live::get(&session, &fqdn, &mentioned).await;
                         names_live::with_host(bus, host_here.as_deref(), &me)
                     };
+                    // Every message reaches every session (D-14): one for
+                    // another session, or for nobody, arrives as context,
+                    // and the instructions say to act only when addressed.
                     let a = names::route(&me, &mentioned, live.as_ref().map(|l| &l.others[..]));
-                    if a == Addressed::Elsewhere {
-                        continue;
-                    }
                     let mut n = notification(m);
                     let meta = &mut n["params"]["meta"];
                     meta["session_name"] = json!(me);

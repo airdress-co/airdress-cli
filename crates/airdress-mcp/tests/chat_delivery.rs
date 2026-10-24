@@ -503,11 +503,12 @@ fn chat_is_offered_pushed_and_never_lost() {
 }
 
 /// Two sessions on one machine share one device host, which hands every
-/// message to both (SPEC-166 phase A). A name decides which of them is
-/// interrupted: `@bob` reaches bob and not alice, a message naming nobody
-/// reaches both, and a read still returns everything, saying whose it is.
+/// message to both (SPEC-166 phase A, D-14). A name decides which of them
+/// is meant to act: `@bob` is `this_session` at bob and `elsewhere` at
+/// alice, a message naming nobody is `none` at both, and a read still
+/// returns everything, saying whose it is.
 #[test]
-fn a_mention_reaches_only_the_named_session() {
+fn a_mention_is_for_the_named_session_and_context_for_the_rest() {
     let home = tempfile::tempdir().unwrap();
     let state = home.path().join("state");
     let port = spawn_http();
@@ -568,7 +569,7 @@ fn a_mention_reaches_only_the_named_session() {
     assert_eq!(meta["mentions"], "bob");
     assert_eq!(to_bob["params"]["content"], "@bob what time is it?");
     let all_bob = bob.wait_for("the message for everyone, at bob", is("e-all"));
-    assert_eq!(all_bob["params"]["meta"]["addressed"], "everyone");
+    assert_eq!(all_bob["params"]["meta"]["addressed"], "none");
     alice.wait_for("the message for everyone, at alice", is("e-all"));
     // A name nobody holds is a typo: pushed, never dropped.
     let typo = alice.wait_for("the typo, at alice", is("e-typo"));
@@ -582,11 +583,12 @@ fn a_mention_reaches_only_the_named_session() {
     assert_eq!(typo["params"]["meta"]["answer_unmatched"], "true");
     let at_bob = bob.wait_for("the typo, at bob", is("e-typo"));
     assert_eq!(at_bob["params"]["meta"]["answer_unmatched"], "false");
-    std::thread::sleep(Duration::from_millis(400));
-    assert!(
-        !alice.notifications.iter().any(is("e-bob")),
-        "alice was interrupted with bob's message"
-    );
+    // bob's message reaches alice too, as context she does not answer
+    // (D-14).
+    let bobs = alice.wait_for("bob's message, at alice", is("e-bob"));
+    assert_eq!(bobs["params"]["meta"]["addressed"], "elsewhere");
+    assert_eq!(bobs["params"]["meta"]["mentions"], "bob");
+    assert!(bobs["params"]["meta"]["answer_unmatched"].is_null());
 
     // Nothing is hidden from a read.
     let read = alice.tool(3, "chat_read", json!({"conversation_id": "c-mine"}));
@@ -679,7 +681,7 @@ fn the_device_host_settles_a_clash_and_knows_who_is_off_the_bus() {
     );
 
     // "@carol" is carol's, although the bus has never heard of her: alice
-    // is not interrupted. Without the host's list it was a typo, pushed.
+    // gets it as context, not as a typo to answer.
     std::thread::sleep(Duration::from_millis(400));
     {
         let mut h = host.lock().unwrap();
@@ -694,10 +696,8 @@ fn the_device_host_settles_a_clash_and_knows_who_is_off_the_bus() {
         }
     };
     alice.wait_for("the message for everyone", is("e-all"));
-    assert!(
-        !alice.notifications.iter().any(is("e-carol")),
-        "alice was interrupted with carol's message"
-    );
+    let carols = alice.wait_for("carol's message, at alice", is("e-carol"));
+    assert_eq!(carols["params"]["meta"]["addressed"], "elsewhere");
     alice.stop();
     second.stop();
 }
