@@ -280,18 +280,14 @@ pub fn verify(item: &Value, known: &Known, pins: &mut Pins) -> Verdict {
     let a = &item["attestation"];
     let signed_by = a["signed_by"].as_str().unwrap_or("none");
     let field = |k: &str| a[k].as_str().unwrap_or_default().to_owned();
-    // A message's own body must hash to what was signed.
-    if item["kind"] == "message" {
-        match canon::body_hash(&message_body(item)) {
-            Ok(h) if h == field("body") => {}
-            _ => return Verdict::invalid(signed_by, "the message does not match what was signed"),
-        }
-    }
     // From a session on another airdress (SPEC-166 §11.3b): signed by a
     // device of that airdress, whose key and root this client does not
     // hold. This airdress's operator checked the signature against the
-    // root it learned by pairing, and the body still hashes to what was
-    // signed; nothing more is claimed.
+    // root it learned by pairing, and the body hash against the request
+    // as it was sent. The delivered item cannot be re-hashed here: the
+    // signed request also named the recipient (`to`) and, for a reply,
+    // the message's id on the other airdress, and neither is part of
+    // the item. Nothing more is claimed.
     if let Some(remote) = item["from_remote"].as_str() {
         if signed_by == "device" && a["airdress"].as_str() == Some(remote) {
             return Verdict {
@@ -305,6 +301,13 @@ pub fn verify(item: &Value, known: &Known, pins: &mut Pins) -> Verdict {
             };
         }
         return Verdict::invalid(signed_by, "an item from another airdress not signed by it");
+    }
+    // A message's own body must hash to what was signed.
+    if item["kind"] == "message" {
+        match canon::body_hash(&message_body(item)) {
+            Ok(h) if h == field("body") => {}
+            _ => return Verdict::invalid(signed_by, "the message does not match what was signed"),
+        }
     }
     match signed_by {
         "device" => verify_device(a, known, pins),
@@ -545,8 +548,9 @@ mod tests {
     }
 
     /// SPEC-166 §11.3b — from another airdress: its device's key is not
-    /// this client's to check, so the verdict says who did check it, and a
-    /// body that no longer matches is still refused here.
+    /// this client's to check, so the verdict says who did check it. The
+    /// signed request also named the recipient, which the delivered item
+    /// does not carry, so its body hash is the operator's to check too.
     #[test]
     fn a_message_from_another_airdress_says_its_operator_checked_it() {
         let key = SigningKey::from_bytes(&[3; 32]);
@@ -559,14 +563,15 @@ mod tests {
         item["from_remote"] = json!("y.example");
         item["from_session"] = Value::Null;
         item["attestation"]["airdress"] = json!("y.example");
+        // As sent: the body that was hashed named the recipient.
+        item["attestation"]["body"] = json!(canon::body_hash(&json!({
+            "content": "hello", "to": "bob@a.example"
+        }))
+        .unwrap());
         let v = verify(&item, &k, &mut pins);
         assert!(v.valid, "{v:?}");
         assert_eq!(v.label(), "peer-device-signed");
         assert!(v.notes[0].contains("y.example"), "{v:?}");
-
-        let mut tampered = item.clone();
-        tampered["content"] = json!("something else");
-        assert!(!verify(&tampered, &k, &mut pins).valid);
         // Claiming another airdress than the one it came from: refused.
         let mut other = item;
         other["attestation"]["airdress"] = json!("z.example");

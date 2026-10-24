@@ -538,12 +538,37 @@ pub async fn start(session: Arc<Session>) {
             return;
         }
     };
-    if let Err(e) = link(&session, &target.fqdn, true).await {
-        // Said once, on stderr and in whoami; tools still answer.
-        eprintln!("airdress-mcp: could not join the agent bus: {e:#}");
-        *session.bus_error.lock().await = Some(format!("{e:#}"));
+    // Retried until it works: the device host is often started after the
+    // editor, and a session that tried once would stay off the bus until
+    // it was restarted (measured on the federation live test).
+    let mut wait = JOIN_RETRY_FIRST;
+    let mut said = false;
+    loop {
+        match link(&session, &target.fqdn, true).await {
+            Ok(_) => {
+                *session.bus_error.lock().await = None;
+                if said {
+                    eprintln!("airdress-mcp: joined the agent bus");
+                }
+                return;
+            }
+            Err(e) => {
+                // Said once, on stderr; whoami always shows the latest.
+                if !said {
+                    eprintln!("airdress-mcp: could not join the agent bus, retrying: {e:#}");
+                    said = true;
+                }
+                *session.bus_error.lock().await = Some(format!("{e:#}"));
+            }
+        }
+        tokio::time::sleep(wait).await;
+        wait = (wait * 2).min(JOIN_RETRY_MAX);
     }
 }
+
+/// The first wait before joining the bus again, and the longest.
+const JOIN_RETRY_FIRST: Duration = Duration::from_secs(2);
+const JOIN_RETRY_MAX: Duration = Duration::from_secs(60);
 
 /// Release every held claim and end every session. Bounded: a dead
 /// operator must not hold the process open after its client has gone.
