@@ -239,21 +239,22 @@ pub fn local_names(text: &str, fqdn: &str) -> Vec<String> {
 /// How one message routes, seen from one session (design §5.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Addressed {
-    /// It mentions nobody: every session sees it.
-    Everyone,
+    /// It mentions nobody: every session sees it, as context (D-14).
+    Nobody,
     /// It mentions this session.
     ThisSession,
     /// It mentions names no live session holds (a typo, a session that
     /// ended): every session sees it, so nothing is dropped silently.
     Unmatched,
-    /// It mentions only names other live sessions hold: not pushed here.
+    /// It mentions only names other live sessions hold: pushed here as
+    /// context, not to be answered (D-14).
     Elsewhere,
 }
 
 impl Addressed {
     pub fn as_str(self) -> &'static str {
         match self {
-            Addressed::Everyone => "everyone",
+            Addressed::Nobody => "none",
             Addressed::ThisSession => "this_session",
             Addressed::Unmatched => "unmatched",
             Addressed::Elsewhere => "elsewhere",
@@ -267,7 +268,7 @@ impl Addressed {
 /// than silent.
 pub fn route(me: &str, mentioned: &[String], live: Option<&[String]>) -> Addressed {
     if mentioned.is_empty() {
-        return Addressed::Everyone;
+        return Addressed::Nobody;
     }
     if mentioned.iter().any(|m| m == me) {
         return Addressed::ThisSession;
@@ -517,7 +518,7 @@ mod tests {
     fn a_message_routes_to_everyone_this_session_elsewhere_or_unmatched() {
         let live = vec!["alice".to_owned(), "bob".to_owned()];
         let r = |text: &str, live: Option<&[String]>| route("bob", &names(text), live);
-        assert_eq!(r("hello all", Some(&live)), Addressed::Everyone);
+        assert_eq!(r("hello all", Some(&live)), Addressed::Nobody);
         assert_eq!(r("@bob hi", Some(&live)), Addressed::ThisSession);
         assert_eq!(r("@alice @bob hi", Some(&live)), Addressed::ThisSession);
         assert_eq!(r("@alice hi", Some(&live)), Addressed::Elsewhere);
