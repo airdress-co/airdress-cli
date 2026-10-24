@@ -235,13 +235,37 @@ fn profile_of(session: &Arc<Session>, args: &Value) -> Result<String> {
     }
 }
 
+/// The profile `login` signs into on a machine that has none.
+const DEFAULT_PROFILE: &str = "default";
+
+/// The profile for a sign-in on a machine with no active one: `default`,
+/// made active unless something already is.
+fn first_profile(paths: &crate::paths::Paths) -> Result<String> {
+    use crate::profile::storage;
+    match storage::read_active_profile(paths)? {
+        Some(p) => Ok(p),
+        None => {
+            storage::write_active_profile(paths, DEFAULT_PROFILE)?;
+            Ok(DEFAULT_PROFILE.to_owned())
+        }
+    }
+}
+
 /// How long `login` holds the call open for the person to approve in the
 /// browser it opened, before answering with the link instead.
 const LOGIN_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 async fn login(session: &Arc<Session>, args: &Value) -> Result<Outcome> {
     use crate::auth::login::{begin_background, BackgroundLogin, BackgroundOpts};
-    let profile = profile_of(session, args)?;
+    // A fresh machine has no profile at all, and the plugin installs no
+    // CLI to make one: sign in into `default` and make it the active one,
+    // as `airdress auth login` would, rather than ask for a command the
+    // person does not have (measured on a fresh account, SPEC-166 F.2).
+    let profile = match profile_of(session, args) {
+        Ok(p) => p,
+        Err(_) if arg_str(args, "profile").is_none() => first_profile(session.paths()?)?,
+        Err(e) => return Err(e),
+    };
     let opts = BackgroundOpts {
         device: arg_bool(args, "device").unwrap_or(false),
         wait: LOGIN_WAIT,
@@ -738,6 +762,26 @@ async fn bridge_call(session: &Arc<Session>, target: &Target, args: &Value) -> R
 
 #[cfg(test)]
 mod tests {
+    /// A fresh machine: login needs no `airdress profile create` first.
+    #[test]
+    fn a_first_sign_in_makes_default_the_active_profile() {
+        let home = tempfile::tempdir().unwrap();
+        let paths = crate::paths::Paths::under(home.path());
+        assert!(crate::profile::storage::read_active_profile(&paths)
+            .unwrap()
+            .is_none());
+        assert_eq!(super::first_profile(&paths).unwrap(), "default");
+        assert_eq!(
+            crate::profile::storage::read_active_profile(&paths)
+                .unwrap()
+                .as_deref(),
+            Some("default")
+        );
+        // An active profile is never replaced.
+        crate::profile::storage::write_active_profile(&paths, "work").unwrap();
+        assert_eq!(super::first_profile(&paths).unwrap(), "work");
+    }
+
     use super::*;
 
     #[test]
