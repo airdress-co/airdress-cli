@@ -58,11 +58,10 @@ fn no_host(session: &Session, fqdn: &str, e: &anyhow::Error) -> anyhow::Error {
     );
     anyhow::anyhow!(
         "chat is read and written by this machine's agent device, and none is serving for \
-         {fqdn} ({e:#}). To make this machine one: install `airdress-agent` from \
-         https://github.com/airdress-co/airdress-cli/releases (the `airdress-agent-<platform>` \
-         asset, checked against its .sha256) into ~/.local/bin, then run \
-         `airdress-agent device join --state-dir {dir} -A {fqdn} --harness claude-code` and \
-         approve it on your phone. Once it is joined, this server starts the device host itself."
+         {fqdn} ({e:#}). To make this machine one, call chat_device_join: it installs the \
+         plugin's pinned airdress-agent if needed and asks to join; the person approves it on \
+         their phone, and this server then starts the device host itself. (By hand: \
+         `airdress-agent device join --state-dir {dir} -A {fqdn} --harness claude-code`.)"
     )
 }
 
@@ -86,6 +85,10 @@ pub async fn call(
 ) -> Result<Value> {
     let fqdn = &target.fqdn;
     match name {
+        "chat_device_join" => {
+            let next = crate::mcp::host_spawn::start_join(session, fqdn).await?;
+            Ok(json!({"airdress": fqdn, "next": next}))
+        }
         "chat_conversations" => {
             let v = ask(session, fqdn, json!({"op": "chat.conversations"})).await?;
             Ok(json!({"conversations": v["conversations"]}))
@@ -257,14 +260,7 @@ pub async fn start(session: Arc<Session>) {
     if !session.opts.chat {
         return;
     }
-    let target = match session.target(None).await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::debug!(error = %e, "chat push: no default airdress");
-            return;
-        }
-    };
-    let fqdn = target.fqdn;
+    let fqdn = session.wait_target().await.fqdn;
     let mut after: Option<i64> = None;
     let mut idle = IDLE_MIN;
     // Which session holds a name on the device host: this process, for as

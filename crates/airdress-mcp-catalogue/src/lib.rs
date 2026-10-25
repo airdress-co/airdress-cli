@@ -997,6 +997,18 @@ fn chat_tools(tools: &mut Vec<Tool>) {
         text("The conversation, from chat_conversations."),
     );
     tools.push(chat(
+        "chat_device_join",
+        "Make this machine an agent device",
+        "Ask to join the airdress as this machine's agent device, so chat can be read and \
+         sent here. Installs the airdress-agent the plugin pinned if this machine has none, \
+         then waits in the background for the person to approve it on their phone; once \
+         approved, the device host starts by itself. Tell the person to approve it.",
+        schema(vec![airdress_arg()], &[]),
+        false,
+        false,
+        true,
+    ));
+    tools.push(chat(
         "chat_conversations",
         "Chat conversations of this agent device",
         "The conversations this machine's agent device is in: its own lane with the \

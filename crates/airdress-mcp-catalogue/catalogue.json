@@ -1347,6 +1347,32 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Make this machine an agent device"
+      },
+      "description": "Ask to join the airdress as this machine's agent device, so chat can be read and sent here. Installs the airdress-agent the plugin pinned if this machine has none, then waits in the background for the person to approve it on their phone; once approved, the device host starts by itself. Tell the person to approve it.",
+      "family": "chat",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "airdress": {
+            "description": "Airdress name, id or FQDN. Omitted: the default airdress.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "chat_device_join",
+      "remote": "no",
+      "slice": "Chat",
+      "title": "Make this machine an agent device"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
         "readOnlyHint": true,
         "title": "Chat conversations of this agent device"
       },

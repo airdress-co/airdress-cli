@@ -536,13 +536,7 @@ pub async fn start(session: Arc<Session>) {
     if !session.opts.bus || session.opts.read_only {
         return;
     }
-    let target = match session.target(None).await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::warn!(error = %e, "agent bus: no airdress to join");
-            return;
-        }
-    };
+    let target = session.wait_target().await;
     // Retried until it works: the device host is often started after the
     // editor, and a session that tried once would stay off the bus until
     // it was restarted (measured on the federation live test).

@@ -14,6 +14,7 @@
 // Stdout is the MCP protocol channel; the crate root allows printing.
 #![deny(clippy::print_stdout)]
 
+pub mod agent_install;
 pub mod bounds;
 pub mod bridge;
 pub mod bus;
