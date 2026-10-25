@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.20](https://github.com/airdress-co/airdress-cli/compare/v0.1.19...v0.1.20) - 2026-10-25
+
+### Added
+
+- *(place)* A map link writer held to the map's own address vectors
+- *(mcp)* Map tools that answer "show me" with a link to the map
+- *(mcp)* Join and serve an agent device without a person's shell
+
+### Fixed
+
+- *(deps)* Move off the yanked crypto-bigint 0.7.6
+
 ## [0.1.19](https://github.com/airdress-co/airdress-cli/compare/v0.1.18...v0.1.19) - 2026-10-24
 
 ### Fixed

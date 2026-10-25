@@ -1,6 +1,6 @@
 [package]
 name = "airdress-place"
-version = "0.1.19"
+version = "0.1.20"
 description = "Pure place logic for Airdress map tools: the map address writer, its switch snapshot and the place-question rules"
 edition.workspace = true
 rust-version.workspace = true
