@@ -192,6 +192,8 @@ pub struct Session {
     /// The device host this server started, if it started one; it ends
     /// with this process.
     pub host_child: Mutex<Option<tokio::process::Child>>,
+    /// A `device join` this server started, waiting for a phone.
+    pub join_child: Mutex<Option<tokio::process::Child>>,
 }
 
 impl std::fmt::Debug for Session {
@@ -223,6 +225,7 @@ impl Session {
             session_delegation: Mutex::new(None),
             widenings: Mutex::new(HashMap::new()),
             host_child: Mutex::new(None),
+            join_child: Mutex::new(None),
         }
     }
 
@@ -448,6 +451,26 @@ impl Session {
             }
         };
         self.resolve_named(&wanted, source).await
+    }
+
+    /// [`Self::target`], retried until there is one. A fresh machine starts
+    /// its server before anyone has signed in, and the loops that wait on
+    /// the airdress (chat push, the bus, the device host) gave up at once;
+    /// they started only when the server was restarted after the sign-in.
+    pub async fn wait_target(&self) -> Target {
+        let mut said = false;
+        loop {
+            match self.target(None).await {
+                Ok(t) => return t,
+                Err(e) => {
+                    if !said {
+                        tracing::debug!(error = %e, "no airdress yet; waiting for one");
+                        said = true;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+            }
+        }
     }
 
     async fn resolve_named(&self, wanted: &str, source: &'static str) -> Result<Target> {

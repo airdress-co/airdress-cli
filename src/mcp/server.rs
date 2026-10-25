@@ -114,14 +114,16 @@ pub async fn serve(opts: ServeOpts) -> Result<()> {
                 refreshing = true;
                 // The device host, if this machine joined one and nothing
                 // serves it; then the bus session, likewise only once the
-                // client is answered.
+                // client is answered. The host is looked for again every
+                // few seconds, so a join approved mid-session is served
+                // without a reconnect.
                 {
                     let session = Arc::clone(&session);
                     tasks.spawn(cancel.child_token().run_until_cancelled_owned(async move {
-                        if let Ok(t) = session.target(None).await {
-                            crate::mcp::host_spawn::ensure(&session, &t.fqdn).await;
-                        }
-                        crate::mcp::bus::start(session).await;
+                        let fqdn = session.wait_target().await.fqdn;
+                        crate::mcp::host_spawn::ensure(&session, &fqdn).await;
+                        let watch = crate::mcp::host_spawn::watch(Arc::clone(&session), fqdn);
+                        tokio::join!(watch, crate::mcp::bus::start(session));
                     }));
                 }
                 // Chat push, likewise: the device host holds the messages.
