@@ -8,7 +8,8 @@
   "shipped": [
     "Query",
     "Bus",
-    "Chat"
+    "Chat",
+    "Maps"
   ],
   "tools": [
     {
@@ -1444,6 +1445,247 @@
       "remote": "no",
       "slice": "Chat",
       "title": "Send a chat message"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": "Search the map"
+      },
+      "description": "Find a place, address, street, town or region on maps.airdress.co, the way its search box does. Each result has a name, an address line, a point, its kind, its credit and a map_link that opens the map there. A question about a kind of place (where to eat, a hotel) gets no list: it is declined with a link to the area. Open data only: no reviews, opening hours, traffic or routing. Do not use this to recommend places.",
+      "family": "airdress",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "airdress": {
+            "description": "Airdress name, id or FQDN. Omitted: the default airdress.",
+            "type": "string"
+          },
+          "lang": {
+            "description": "Language for names.",
+            "enum": [
+              "en",
+              "de",
+              "fr"
+            ],
+            "type": "string"
+          },
+          "limit": {
+            "description": "Results to return. Default 10.",
+            "maximum": 10,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "near": {
+            "additionalProperties": false,
+            "description": "Rank results near this point.",
+            "properties": {
+              "lat": {
+                "maximum": 90,
+                "minimum": -90,
+                "type": "number"
+              },
+              "lng": {
+                "maximum": 180,
+                "minimum": -180,
+                "type": "number"
+              }
+            },
+            "required": [
+              "lat",
+              "lng"
+            ],
+            "type": "object"
+          },
+          "query": {
+            "description": "What to find, as a person would type it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "map_search",
+      "remote": "yes",
+      "slice": "Maps",
+      "title": "Search the map"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": "Find an area to outline"
+      },
+      "description": "A country, region, county or town the map can outline, by name or by its OpenStreetMap relation id. Answers its id, name, kind, a point, its credit and a map_link that opens the map fitted to the outlined area. Open data only: no reviews, opening hours, traffic or routing. Do not use this to recommend places.",
+      "family": "airdress",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "airdress": {
+            "description": "Airdress name, id or FQDN. Omitted: the default airdress.",
+            "type": "string"
+          },
+          "lang": {
+            "enum": [
+              "en",
+              "de",
+              "fr"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "description": "The area's name, e.g. \"Bavaria\".",
+            "type": "string"
+          },
+          "relation": {
+            "description": "An OpenStreetMap relation id, when it is already known.",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "map_area",
+      "remote": "yes",
+      "slice": "Maps",
+      "title": "Find an area to outline"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": "What the map can show"
+      },
+      "description": "The map's views (map, terrain, 3D terrain, satellite), its modes (globe, flat), and every layer and switch with its name and description in English and German, its default and its credit. Use the ids in map_link. Open data only: no reviews, opening hours, traffic or routing. Do not use this to recommend places.",
+      "family": "airdress",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "airdress": {
+            "description": "Airdress name, id or FQDN. Omitted: the default airdress.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "map_layers",
+      "remote": "yes",
+      "slice": "Maps",
+      "title": "What the map can show"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": "Link to a map state"
+      },
+      "description": "A maps.airdress.co link that opens the map in the state given: a camera, a view, a mode, layer switches, an open place (with ask=today or sky to open its answer), an outlined area. Pure: it calls nothing. Every input it could not honour is named in notes with the reason. Open data only: no reviews, opening hours, traffic or routing. Do not use this to recommend places.",
+      "family": "airdress",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "area": {
+            "description": "An OpenStreetMap relation id to outline (62768 or \"r62768\").",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "ask": {
+            "description": "The answer the place's card opens with. Needs a place.",
+            "enum": [
+              "today",
+              "sky"
+            ],
+            "type": "string"
+          },
+          "camera": {
+            "additionalProperties": false,
+            "description": "Where the map looks. Omit it with an area, and the map fits the area.",
+            "properties": {
+              "bearing": {
+                "type": "number"
+              },
+              "lat": {
+                "type": "number"
+              },
+              "lng": {
+                "type": "number"
+              },
+              "pitch": {
+                "maximum": 60,
+                "minimum": 0,
+                "type": "number"
+              },
+              "zoom": {
+                "maximum": 22,
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "required": [
+              "lat",
+              "lng",
+              "zoom"
+            ],
+            "type": "object"
+          },
+          "layers": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": "Switch id to on or off, e.g. {\"satellites\": true, \"counties\": false}. Ids from map_layers.",
+            "type": "object"
+          },
+          "mode": {
+            "description": "globe (the default) or flat.",
+            "type": "string"
+          },
+          "place": {
+            "additionalProperties": false,
+            "description": "A place to open the card of.",
+            "properties": {
+              "lat": {
+                "type": "number"
+              },
+              "lng": {
+                "type": "number"
+              },
+              "name": {
+                "maxLength": 200,
+                "type": "string"
+              }
+            },
+            "required": [
+              "lat",
+              "lng"
+            ],
+            "type": "object"
+          },
+          "view": {
+            "description": "map, terrain, terrain3d or satellite (map_layers lists them).",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "map_link",
+      "remote": "yes",
+      "slice": "Maps",
+      "title": "Link to a map state"
     }
   ]
 }

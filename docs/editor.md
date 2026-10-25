@@ -4,8 +4,8 @@ The CLI is also an [MCP](https://modelcontextprotocol.io) server. An editor,
 or a model inside one, gets the same reads and writes the CLI does, offered
 as tools: your airdresses and their status, the functions dev loop (list,
 versions, logs, templates, validate, deploy, promote), resources (list,
-read, apply), recent inbound events, agent chat and the agent bus, and
-every tool your own functions publish, re-exported as `fn_<tool>`.
+read, apply), recent inbound events, agent chat and the agent bus, the
+map, and every tool your own functions publish, re-exported as `fn_<tool>`.
 
 ## Claude Code
 
@@ -65,6 +65,29 @@ An airdress can switch the editor path off. When it is off, every tool
 answers one sentence saying so and where to manage the airdress. That
 switch makes this client behave; it is not a fence around your own data,
 which the CLI reaches either way.
+
+## The map
+
+Four read-only tools answer "show me …" with a link to
+[maps.airdress.co](https://maps.airdress.co) that opens the map in that
+state:
+
+- `map_search` finds a place, address, street, town or region, the way the
+  map's search box does. Each result has its own link.
+- `map_area` finds a country, region, county or town the map can outline,
+  and links to the map fitted to it.
+- `map_layers` lists the views, the globe and flat modes, and every layer
+  with its default, in English and German.
+- `map_link` writes the link for a camera, a view, a mode, layer switches,
+  an open place and an outlined area. It calls nothing, and names every
+  input it could not use, with the reason.
+
+Searches go through your own airdress, which asks the map; nothing about
+them reaches your account. The map is open data only: it has no reviews,
+ratings, opening hours, traffic or routing. So a question about a kind of
+place ("where should I eat in Bonn") gets no list of places, only the town
+and a link; a place you name is found like any other, with the note that
+places may have closed. The tools need you signed in, as every tool does.
 
 ## When the airdress's root key changes
 

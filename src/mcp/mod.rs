@@ -22,6 +22,7 @@ pub mod channel_push;
 pub mod chat;
 pub mod host_spawn;
 pub mod jsonrpc;
+pub mod maps;
 pub mod names;
 pub mod names_live;
 pub mod origin;

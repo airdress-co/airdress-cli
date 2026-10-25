@@ -1,3 +1,4 @@
+// cspell:ignore Breisgau Brienner Flach Globus Hochschwarzwald Karte Landkreis Luitpold Markt München Nordrhein Satellit Straße Württemberg housenumber
 //! Drive the server the way a harness drives it: write JSON-RPC lines
 //! into its stdin, read them back off its stdout, against a mock hub
 //! and a mock operator on loopback.
@@ -180,6 +181,10 @@ fn operator_route(line: &str) -> (u16, String) {
             "generation": 2,
             "previous_generation": 2,
         })
+    } else if line.contains("/v1/maps/search") {
+        map_search_answer(line)
+    } else if line.contains("/v1/maps/layers") {
+        map_layers_answer()
     } else if line.contains("/v1/tools/mcp") {
         json!({"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "ping", "description": "p", "inputSchema": {"type": "object"}, "annotations": {"readOnlyHint": true}}]}})
     } else {
@@ -505,6 +510,13 @@ fn a_whole_session_leaks_no_secret_and_reaches_nothing_but_the_mocks() {
             "function_promote",
             json!({"name": "hello", "version": "sha256:bbbb", "based_on": "sha256:aaaa"}),
         ),
+        ("map_search", json!({"query": "Bonn"})),
+        ("map_area", json!({"query": "Breisgau-Hochschwarzwald"})),
+        ("map_layers", json!({})),
+        (
+            "map_link",
+            json!({"place": {"lat": 50.7374, "lng": 7.0982}, "ask": "today"}),
+        ),
     ];
     // These must not merely answer, they must answer with the mock's
     // data: a test where every tool refuses would prove nothing about
@@ -522,6 +534,10 @@ fn a_whole_session_leaks_no_secret_and_reaches_nothing_but_the_mocks() {
         "ingress_events_recent",
         "bridge_list",
         "function_promote",
+        "map_search",
+        "map_area",
+        "map_layers",
+        "map_link",
     ];
     let mut id = 10;
     let mut transcript = String::new();
@@ -671,4 +687,213 @@ fn a_host_outside_the_mocks_cannot_be_reached() {
         "refused for the wrong reason: {text}"
     );
     server.finish();
+}
+
+/// The operator's map search, by what was asked. The request line carries
+/// the query string, as the CLI encodes it.
+fn map_search_answer(line: &str) -> Value {
+    let bonn = json!({"name": "Bonn", "address": {"state": "Nordrhein-Westfalen", "country": "Deutschland"},
+        "point": [7.0982, 50.7374], "layer": "locality", "credit": "© OpenStreetMap contributors",
+        "osm": {"type": "relation", "id": 62508}});
+    if line.contains("kind=area") {
+        return json!({"results": [{"name": "Landkreis Breisgau-Hochschwarzwald", "address": {"state": "Baden-Württemberg"},
+            "point": [7.85, 47.95], "layer": "region", "credit": "© OpenStreetMap contributors",
+            "osm": {"type": "relation", "id": 62768}}]});
+    }
+    if line.contains("q=where+should+I+eat") {
+        return json!({"results": [{"name": "Restaurant am Markt", "address": {"city": "Bonn"},
+            "point": [7.1, 50.73], "layer": "venue", "credit": "© OpenStreetMap contributors"}]});
+    }
+    if line.contains("q=Caf%C3%A9+Luitpold") {
+        return json!({"results": [{"name": "Café Luitpold", "address": {"street": "Brienner Straße", "housenumber": "11", "city": "München"},
+            "point": [11.5733, 48.1437], "layer": "venue", "credit": "© OpenStreetMap contributors"}]});
+    }
+    if line.contains("q=Bonn&") || line.contains("q=Bonn ") {
+        return json!({"results": [bonn], "coverage": "regional"});
+    }
+    json!({"results": []})
+}
+
+/// The operator's layer list: the map's, with one switch the build's copy
+/// does not know, so a link written after it shows which list it used.
+fn map_layers_answer() -> Value {
+    json!({
+        "schema": 1,
+        "views": [{"id": "map", "name": {"en": "Map", "de": "Karte"}}, {"id": "satellite", "name": {"en": "Satellite", "de": "Satellit"}}],
+        "modes": {"default": "globe", "all": [{"id": "globe", "name": {"en": "Globe", "de": "Globus"}}, {"id": "flat", "name": {"en": "Flat", "de": "Flach"}}]},
+        "switches": {"regions": true, "counties": true, "today-anomaly": false},
+        "boundaries": [],
+        "layers": [],
+    })
+}
+
+fn tool_json(r: &Value) -> Value {
+    assert_eq!(
+        r["result"]["isError"], false,
+        "refused: {}",
+        r["result"]["content"][0]["text"]
+    );
+    r["result"]["structuredContent"].clone()
+}
+
+#[test]
+fn map_tools_answer_with_links_and_decline_category_questions() {
+    let home = tempfile::tempdir().unwrap();
+    let hub = spawn_mock("hub", hub_route);
+    let operator = spawn_mock("operator", operator_route);
+    let operator_host = format!("127.0.0.1:{}", operator.port);
+    profile_store(home.path(), hub.port, &operator_host);
+    let mut server = Server::start(home.path(), |c| {
+        jail(c)
+            .args([
+                "--harness",
+                "test-harness",
+                "--profile",
+                "default",
+                "--default-airdress",
+                &operator_host,
+            ])
+            .env("AIRDRESS_OPERATOR_URL", format!("http://{operator_host}"))
+    });
+    server.call(1, "initialize", json!({}));
+    let names: Vec<String> = server.call(2, "tools/list", json!({}))["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_owned())
+        .collect();
+    for n in ["map_search", "map_area", "map_layers", "map_link"] {
+        assert!(names.contains(&n.to_string()), "{n} is not offered");
+    }
+    let call = |server: &mut Server, id: u64, name: &str, args: Value| {
+        server.call(id, "tools/call", json!({"name": name, "arguments": args}))
+    };
+
+    // A search: each result carries its link, an area its outline.
+    let r = tool_json(&call(
+        &mut server,
+        10,
+        "map_search",
+        json!({"query": "Bonn", "near": {"lat": 50.7, "lng": 7.1}}),
+    ));
+    assert_eq!(r["results"][0]["name"], "Bonn");
+    assert_eq!(
+        r["results"][0]["map_link"],
+        "https://maps.airdress.co/#map=11/50.7374/7.0982&place=50.737400,7.098200/Bonn&area=r62508"
+    );
+
+    // A category question: no list, the town and a link instead.
+    let r = tool_json(&call(
+        &mut server,
+        11,
+        "map_search",
+        json!({"query": "where should I eat in Bonn"}),
+    ));
+    assert_eq!(r["declined"], true);
+    assert!(r["message"]
+        .as_str()
+        .unwrap()
+        .starts_with("This map does not recommend places"));
+    assert!(
+        r.get("results").is_none(),
+        "a declined question carries no list"
+    );
+    assert_eq!(r["area"]["name"], "Bonn");
+    assert!(r["map_link"].as_str().unwrap().contains("area=r62508"));
+
+    // A named café is a search, answered with its note.
+    let r = tool_json(&call(
+        &mut server,
+        12,
+        "map_search",
+        json!({"query": "Café Luitpold München"}),
+    ));
+    assert_eq!(r["results"][0]["name"], "Café Luitpold");
+    assert_eq!(r["results"][0]["address"], "Brienner Straße 11, München");
+    assert_eq!(
+        r["notes"][0],
+        "Places come from OpenStreetMap and may have closed."
+    );
+
+    // An area, outlined and fitted (no camera in its link).
+    let r = tool_json(&call(
+        &mut server,
+        13,
+        "map_area",
+        json!({"query": "Breisgau-Hochschwarzwald"}),
+    ));
+    assert_eq!(r["areas"][0]["relation"], 62768);
+    assert_eq!(
+        r["areas"][0]["map_link"],
+        "https://maps.airdress.co/#area=r62768"
+    );
+
+    // A relation id alone: a link, and a note that nothing was looked up.
+    let r = tool_json(&call(
+        &mut server,
+        14,
+        "map_area",
+        json!({"relation": 62768}),
+    ));
+    assert_eq!(
+        r["areas"][0]["map_link"],
+        "https://maps.airdress.co/#area=r62768"
+    );
+    assert!(r["notes"][0].as_str().unwrap().contains("not looked up"));
+
+    // A link before any layer list: the build's own switches.
+    let r = tool_json(&call(
+        &mut server,
+        15,
+        "map_link",
+        json!({"layers": {"today-anomaly": true}}),
+    ));
+    assert_eq!(r["switches_from"], "snapshot");
+    assert!(r["notes"][0].as_str().unwrap().contains("today-anomaly"));
+
+    // The layers, then a link written with the airdress's own list.
+    let r = tool_json(&call(&mut server, 16, "map_layers", json!({})));
+    assert_eq!(r["source"], "airdress");
+    let r = tool_json(&call(
+        &mut server,
+        17,
+        "map_link",
+        json!({
+            "camera": {"lat": 47.999, "lng": 7.8421, "zoom": 10.25},
+            "view": "satellite", "mode": "flat", "layers": {"today-anomaly": true, "counties": false},
+            "place": {"lat": 47.995, "lng": 7.85, "name": "Freiburg"}, "ask": "today", "area": "r62768",
+        }),
+    ));
+    assert_eq!(r["switches_from"], "airdress");
+    assert_eq!(
+        r["url"],
+        "https://maps.airdress.co/#map=10.25/47.999/7.8421&view=satellite&proj=flat\
+         &layers=-counties,+today-anomaly&place=47.995000,7.850000/Freiburg&ask=today&area=r62768"
+    );
+    assert_eq!(r["notes"], json!([]));
+
+    // Dropped inputs, each with its reason.
+    let r = tool_json(&call(
+        &mut server,
+        18,
+        "map_link",
+        json!({"view": "terrain3d", "ask": "sky", "area": -3}),
+    ));
+    let notes = r["notes"].to_string();
+    assert!(
+        notes.contains("terrain3d") && notes.contains("no place") && notes.contains("area"),
+        "{notes}"
+    );
+
+    server.finish();
+    let seen = operator.seen.lock().unwrap().clone();
+    assert!(
+        seen.iter()
+            .any(|l| l.contains("/v1/maps/search") && l.contains("near=50.7%2C7.1")),
+        "{seen:?}"
+    );
+    assert!(
+        !seen.iter().any(|l| l.contains("map_link")),
+        "map_link called something: {seen:?}"
+    );
 }

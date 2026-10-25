@@ -1,3 +1,4 @@
+// cspell:ignore abendessen apotheke arzt biergarten bäckerei einkaufen frühstück gasthaus gaststätte geschäft imbiss kaffee kneipe lokal mittagessen supermarkt unterkunft zahnarzt übernachtung
 //! The Airdress MCP tool catalogue.
 //!
 //! One list, consumed twice: by the local stdio server
@@ -41,6 +42,8 @@ pub enum Slice {
     Bus,
     /// Agent chat.
     Chat,
+    /// The read-only map tools: search, areas, layers and links.
+    Maps,
 }
 
 /// Which family a tool belongs to. The server uses it to decide what a
@@ -567,8 +570,235 @@ pub fn all() -> Vec<Tool> {
 
     bus_tools(&mut tools);
     chat_tools(&mut tools);
+    map_tools(&mut tools);
 
     tools
+}
+
+/// What every map tool's description ends with: what the map does not
+/// have, so a model knows when to decline instead of improvising.
+pub const MAP_LIMITS: &str = "Open data only: no reviews, opening hours, traffic or routing. \
+Do not use this to recommend places.";
+
+/// What `map_search` says instead of listing places for a category
+/// question ("where to eat in Bonn").
+pub const MAP_DECLINE: &str =
+    "This map does not recommend places: it has no reviews or opening hours.";
+
+/// What a result that is a place (a café, a shop) carries.
+pub const MAP_MAY_HAVE_CLOSED: &str = "Places come from OpenStreetMap and may have closed.";
+
+/// Words that make a query a question about a kind of place, in English
+/// and German. A query with one of them gets no list of places
+/// (`MAP_DECLINE`) unless it names one place. Data, reviewed like code:
+/// a word added here declines a whole class of questions.
+pub const MAP_CATEGORY_WORDS: &[&str] = &[
+    // English
+    "restaurant",
+    "eat",
+    "eating",
+    "food",
+    "dinner",
+    "lunch",
+    "breakfast",
+    "brunch",
+    "café",
+    "cafe",
+    "coffee",
+    "bar",
+    "pub",
+    "club",
+    "nightlife",
+    "hotel",
+    "hostel",
+    "motel",
+    "stay",
+    "shop",
+    "shopping",
+    "store",
+    "supermarket",
+    "bakery",
+    "pizza",
+    "pizzeria",
+    "burger",
+    "sushi",
+    "kebab",
+    "takeaway",
+    "doctor",
+    "dentist",
+    "pharmacy",
+    "hairdresser",
+    "gym",
+    "spa",
+    // German
+    "essen",
+    "gaststätte",
+    "gasthaus",
+    "kneipe",
+    "lokal",
+    "imbiss",
+    "frühstück",
+    "mittagessen",
+    "abendessen",
+    "kaffee",
+    "biergarten",
+    "unterkunft",
+    "übernachtung",
+    "pension",
+    "laden",
+    "geschäft",
+    "einkaufen",
+    "supermarkt",
+    "bäckerei",
+    "arzt",
+    "zahnarzt",
+    "apotheke",
+    "friseur",
+];
+
+/// A map tool: read-only, served remotely like any read.
+fn map_tool(
+    name: &'static str,
+    title: &'static str,
+    description: &'static str,
+    input_schema: Value,
+) -> Tool {
+    Tool {
+        name,
+        title,
+        description,
+        input_schema,
+        read_only: true,
+        destructive: false,
+        idempotent: true,
+        remote: Remote::Yes,
+        slice: Slice::Maps,
+        family: Family::Airdress,
+    }
+}
+
+fn point_schema(description: &str) -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "lat": {"type": "number", "minimum": -90, "maximum": 90},
+            "lng": {"type": "number", "minimum": -180, "maximum": 180},
+        },
+        "required": ["lat", "lng"],
+        "additionalProperties": false,
+        "description": description,
+    })
+}
+
+fn map_tools(tools: &mut Vec<Tool>) {
+    tools.push(map_tool(
+        "map_search",
+        "Search the map",
+        "Find a place, address, street, town or region on maps.airdress.co, the way its \
+         search box does. Each result has a name, an address line, a point, its kind, its \
+         credit and a map_link that opens the map there. A question about a kind of place \
+         (where to eat, a hotel) gets no list: it is declined with a link to the area. \
+         Open data only: no reviews, opening hours, traffic or routing. Do not use this to \
+         recommend places.",
+        schema(
+            vec![
+                ("query", text("What to find, as a person would type it.")),
+                ("near", point_schema("Rank results near this point.")),
+                (
+                    "limit",
+                    json!({"type": "integer", "minimum": 1, "maximum": 10, "description": "Results to return. Default 10."}),
+                ),
+                (
+                    "lang",
+                    json!({"type": "string", "enum": ["en", "de", "fr"], "description": "Language for names."}),
+                ),
+                airdress_arg(),
+            ],
+            &["query"],
+        ),
+    ));
+    tools.push(map_tool(
+        "map_area",
+        "Find an area to outline",
+        "A country, region, county or town the map can outline, by name or by its \
+         OpenStreetMap relation id. Answers its id, name, kind, a point, its credit and a \
+         map_link that opens the map fitted to the outlined area. Open data only: no \
+         reviews, opening hours, traffic or routing. Do not use this to recommend places.",
+        schema(
+            vec![
+                ("query", text("The area's name, e.g. \"Bavaria\".")),
+                (
+                    "relation",
+                    json!({"type": "integer", "minimum": 1, "description": "An OpenStreetMap relation id, when it is already known."}),
+                ),
+                ("lang", json!({"type": "string", "enum": ["en", "de", "fr"]})),
+                airdress_arg(),
+            ],
+            &[],
+        ),
+    ));
+    tools.push(map_tool(
+        "map_layers",
+        "What the map can show",
+        "The map's views (map, terrain, 3D terrain, satellite), its modes (globe, flat), \
+         and every layer and switch with its name and description in English and German, \
+         its default and its credit. Use the ids in map_link. Open data only: no reviews, \
+         opening hours, traffic or routing. Do not use this to recommend places.",
+        airdress_only(),
+    ));
+    tools.push(map_tool(
+        "map_link",
+        "Link to a map state",
+        "A maps.airdress.co link that opens the map in the state given: a camera, a view, \
+         a mode, layer switches, an open place (with ask=today or sky to open its \
+         answer), an outlined area. Pure: it calls nothing. Every input it could not \
+         honour is named in notes with the reason. Open data only: no reviews, opening \
+         hours, traffic or routing. Do not use this to recommend places.",
+        schema(
+            vec![
+                (
+                    "camera",
+                    json!({
+                        "type": "object",
+                        "properties": {
+                            "lat": {"type": "number"}, "lng": {"type": "number"},
+                            "zoom": {"type": "number", "minimum": 0, "maximum": 22},
+                            "bearing": {"type": "number"},
+                            "pitch": {"type": "number", "minimum": 0, "maximum": 60},
+                        },
+                        "required": ["lat", "lng", "zoom"],
+                        "additionalProperties": false,
+                        "description": "Where the map looks. Omit it with an area, and the map fits the area.",
+                    }),
+                ),
+                ("view", json!({"type": "string", "description": "map, terrain, terrain3d or satellite (map_layers lists them)."})),
+                ("mode", json!({"type": "string", "description": "globe (the default) or flat."})),
+                (
+                    "layers",
+                    json!({"type": "object", "additionalProperties": {"type": "boolean"}, "description": "Switch id to on or off, e.g. {\"satellites\": true, \"counties\": false}. Ids from map_layers."}),
+                ),
+                (
+                    "place",
+                    json!({
+                        "type": "object",
+                        "properties": {
+                            "lat": {"type": "number"}, "lng": {"type": "number"},
+                            "name": {"type": "string", "maxLength": 200},
+                        },
+                        "required": ["lat", "lng"],
+                        "additionalProperties": false,
+                        "description": "A place to open the card of.",
+                    }),
+                ),
+                (
+                    "area",
+                    json!({"type": ["integer", "string"], "description": "An OpenStreetMap relation id to outline (62768 or \"r62768\")."}),
+                ),
+                ("ask", json!({"type": "string", "enum": ["today", "sky"], "description": "The answer the place's card opens with. Needs a place."})),
+            ],
+            &[],
+        ),
+    ));
 }
 
 /// A string argument with a description.
@@ -1047,7 +1277,7 @@ fn chat_tools(tools: &mut Vec<Tool>) {
 
 /// The slices this build implements. A tool outside them is defined but
 /// not offered.
-pub const SHIPPED: &[Slice] = &[Slice::Query, Slice::Bus, Slice::Chat];
+pub const SHIPPED: &[Slice] = &[Slice::Query, Slice::Bus, Slice::Chat, Slice::Maps];
 
 /// Whether a tool is offered by this build.
 pub fn shipped(tool: &Tool) -> bool {
@@ -1199,6 +1429,37 @@ mod tests {
             if t.name.starts_with("bus_") && !t.name.starts_with("bus_state") {
                 assert!(!t.destructive, "{} is marked destructive", t.name);
             }
+        }
+    }
+
+    #[test]
+    fn map_tools_are_reads_served_remotely_and_say_what_the_map_lacks() {
+        let names = ["map_search", "map_area", "map_layers", "map_link"];
+        for n in names {
+            let t = find(n).unwrap_or_else(|| panic!("{n} is missing"));
+            assert!(t.read_only && t.idempotent && !t.destructive, "{n}");
+            assert_eq!(t.remote, Remote::Yes, "{n}");
+            assert_eq!(t.slice, Slice::Maps, "{n}");
+            assert!(
+                t.description.ends_with(MAP_LIMITS),
+                "{n} does not say what the map lacks"
+            );
+        }
+        let ro = offered(true, false, false);
+        for n in names {
+            assert!(
+                ro.iter().any(|t| t.name == n),
+                "{n} is not offered read-only"
+            );
+        }
+    }
+
+    #[test]
+    fn category_words_are_lower_case_and_unique() {
+        let mut seen = std::collections::BTreeSet::new();
+        for w in MAP_CATEGORY_WORDS {
+            assert_eq!(*w, w.to_lowercase(), "{w}");
+            assert!(seen.insert(*w), "{w} twice");
         }
     }
 

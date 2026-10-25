@@ -95,6 +95,9 @@ async fn dispatch(session: &Arc<Session>, name: &str, args: &Value) -> Result<Ou
         "login" => return login(session, args).await,
         "logout" => return logout(session, args).await,
         "whoami" => return whoami(session, args).await,
+        // Pure: it reaches no airdress, so it is answered before one is
+        // resolved (and before the advisory switch, which is read from one).
+        "map_link" => return crate::mcp::maps::map_link(session, args).map(Outcome::data),
         _ => {}
     }
 
@@ -126,6 +129,15 @@ async fn dispatch(session: &Arc<Session>, name: &str, args: &Value) -> Result<Ou
         "ingress_events_recent" => ingress_events_recent(session, &target, args).await,
         "bridge_list" => bridge_list(session, &target).await,
         "bridge_call" => bridge_call(session, &target, args).await,
+        "map_search" => crate::mcp::maps::map_search(session, &target, args)
+            .await
+            .map(Outcome::data),
+        "map_area" => crate::mcp::maps::map_area(session, &target, args)
+            .await
+            .map(Outcome::data),
+        "map_layers" => crate::mcp::maps::map_layers(session, &target)
+            .await
+            .map(Outcome::data),
         // The agent bus. Its own switch is the operator's to enforce: a
         // switched-off bus answers `not_enabled`, read below.
         bus if bus.starts_with("bus_") => crate::mcp::bus::call(session, &target, bus, args)
