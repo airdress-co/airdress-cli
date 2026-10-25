@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/airdress-mcp", "crates/airdress-mcp-catalogue", "crates/airdress-shell-proto", "crates/airdress-term", "crates/airdress-shell-mock-host", "crates/airdress-shell-host"]
+members = [".", "crates/airdress-mcp", "crates/airdress-mcp-catalogue", "crates/airdress-place", "crates/airdress-shell-proto", "crates/airdress-term", "crates/airdress-shell-mock-host", "crates/airdress-shell-host"]
 # Fuzz crates are their own workspaces (nightly, libfuzzer-sys, their own
 # lockfile), kept out of this one so `--locked` builds never see them.
 exclude = ["crates/airdress-shell-proto/fuzz"]
@@ -189,6 +189,7 @@ mls = ["dep:airdress-mls", "dep:airdress-mls-client", "dep:chacha20poly1305"]
 
 [dependencies]
 airdress-mcp-catalogue = { version = "0.1.19", path = "crates/airdress-mcp-catalogue" }
+airdress-place = { version = "0.1.19", path = "crates/airdress-place" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"

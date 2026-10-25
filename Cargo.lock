@@ -55,6 +55,7 @@ dependencies = [
  "airdress-mcp-catalogue",
  "airdress-mls",
  "airdress-mls-client",
+ "airdress-place",
  "airdress-shell-host",
  "airdress-shell-proto",
  "anyhow",
@@ -156,6 +157,15 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "zeroize",
+]
+
+[[package]]
+name = "airdress-place"
+version = "0.1.19"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

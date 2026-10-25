@@ -230,6 +230,50 @@ jobs:
             exit 1
           fi
 
+  map-address-vectors:
+    name: Map address vectors pinned to the map's own
+    # map_link writes the map's address (crates/airdress-place). The map
+    # repository owns the grammar's cases; this crate runs a pinned copy
+    # (tests/vectors.rs holds the copy to its SHA-256). This job holds the
+    # copy to the map repository's file on main. Change the cases there
+    # first, then copy them here with the new SHA-256.
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/create-github-app-token@v1
+        id: token
+        # The app may not be installed on the map repository; the job then
+        # says so and the crate's own pin test is the only check.
+        continue-on-error: true
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          owner: airdress-co
+          repositories: airdress-maps
+      - name: The pinned copy is byte for byte the map's file
+        env:
+          TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::warning::no token for the map repository: the vectors were not compared with it"
+            exit 0
+          fi
+          code=$(curl -sSL -o maps-vectors.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/airdress-co/airdress-maps/contents/services/maps-front/web/test/fixtures/address-vectors.json?ref=main")
+          if [ "$code" = 404 ]; then
+            echo "::warning::the map repository has no address vectors on main yet"
+            exit 0
+          fi
+          [ "$code" = 200 ] || { echo "::error::reading the map's vectors answered $code"; exit 1; }
+          if ! cmp -s maps-vectors.json crates/airdress-place/tests/fixtures/address-vectors.json; then
+            echo "::error::the map's address vectors differ from the pinned copy"
+            exit 1
+          fi
+
   agent-bus:
     name: Agent bus (client, channel push, delivery fallback)
     # Signing (the canonicalization and signature vectors the operator

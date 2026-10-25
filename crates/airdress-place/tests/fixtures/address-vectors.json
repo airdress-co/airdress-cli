@@ -1,0 +1,695 @@
+{
+  "schema": 1,
+  "about": "The map address grammar (the URL fragment of maps.airdress.co) as cases. The page's formatAddress/parseAddress and every other writer of a map link (the CLI's map_link) pass every case. Change the grammar here first.",
+  "options": {
+    "switches": {
+      "regions": true,
+      "counties": true,
+      "cities": true,
+      "names": true,
+      "daynight": true,
+      "satellites": false,
+      "sat-stations": true,
+      "sat-gnss": true,
+      "sat-starlink": false,
+      "sat-oneweb": false,
+      "sat-kuiper": false,
+      "sat-qianfan": false,
+      "sat-guowang": false,
+      "sat-tracks": false,
+      "satellites-all": false,
+      "reference-lines": true
+    },
+    "views": ["map", "terrain", "terrain3d", "satellite"],
+    "modes": ["globe", "flat"],
+    "defaultMode": "globe",
+    "minZoom": 0,
+    "maxZoom": 22,
+    "maxPitch": 60,
+    "asks": ["today", "sky"]
+  },
+  "cases": [
+    {
+      "name": "nothing to say",
+      "op": "format",
+      "state": {},
+      "fragment": ""
+    },
+    {
+      "name": "a camera at zoom 9: four decimals",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 50.7374,
+          "lng": 7.0982,
+          "zoom": 9
+        }
+      },
+      "fragment": "#map=9/50.7374/7.0982"
+    },
+    {
+      "name": "zoom rounded to two decimals, trailing zeros dropped",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 48.137154,
+          "lng": 11.575382,
+          "zoom": 12.5049
+        }
+      },
+      "fragment": "#map=12.5/48.13715/11.57538"
+    },
+    {
+      "name": "bearing alone is written with a zero pitch left off",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 50.7374,
+          "lng": 7.0982,
+          "zoom": 9,
+          "bearing": 30
+        }
+      },
+      "fragment": "#map=9/50.7374/7.0982/30"
+    },
+    {
+      "name": "pitch alone writes a zero bearing before it",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 50.7374,
+          "lng": 7.0982,
+          "zoom": 9,
+          "pitch": 45.4
+        }
+      },
+      "fragment": "#map=9/50.7374/7.0982/0/45"
+    },
+    {
+      "name": "bearing wraps into (-180, 180], -180 is 180",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 50.7374,
+          "lng": 7.0982,
+          "zoom": 9,
+          "bearing": -180,
+          "pitch": 10
+        }
+      },
+      "fragment": "#map=9/50.7374/7.0982/180/10"
+    },
+    {
+      "name": "a negative bearing halfway rounds toward +infinity (Math.round)",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 50.7374,
+          "lng": 7.0982,
+          "zoom": 9,
+          "bearing": -12.25
+        }
+      },
+      "fragment": "#map=9/50.7374/7.0982/-12.2"
+    },
+    {
+      "name": "a longitude past 180 wraps",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 10,
+          "lng": 190,
+          "zoom": 3
+        }
+      },
+      "fragment": "#map=3/10/-170"
+    },
+    {
+      "name": "one more latitude decimal past 75 degrees",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 78.2234567,
+          "lng": 15.6412345,
+          "zoom": 8
+        }
+      },
+      "fragment": "#map=8/78.2235/15.641"
+    },
+    {
+      "name": "an exact binary tie rounds up, as toFixed does",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 48.25,
+          "lng": -48.25,
+          "zoom": 0
+        }
+      },
+      "fragment": "#map=0/48.3/-48.3"
+    },
+    {
+      "name": "a camera at the pole on the globe",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 90,
+          "lng": 0,
+          "zoom": 1.5
+        }
+      },
+      "fragment": "#map=1.5/90/0"
+    },
+    {
+      "name": "a camera latitude past 90 is clamped",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 95,
+          "lng": 0,
+          "zoom": 2
+        }
+      },
+      "fragment": "#map=2/90/0"
+    },
+    {
+      "name": "view map is the default and left out",
+      "op": "format",
+      "state": {
+        "view": "map"
+      },
+      "fragment": ""
+    },
+    {
+      "name": "view satellite",
+      "op": "format",
+      "state": {
+        "view": "satellite"
+      },
+      "fragment": "#view=satellite"
+    },
+    {
+      "name": "a view the page does not know is dropped",
+      "op": "format",
+      "state": {
+        "view": "streetview"
+      },
+      "fragment": ""
+    },
+    {
+      "name": "the default mode is left out",
+      "op": "format",
+      "state": {
+        "mode": "globe"
+      },
+      "fragment": ""
+    },
+    {
+      "name": "flat is written",
+      "op": "format",
+      "state": {
+        "mode": "flat"
+      },
+      "fragment": "#proj=flat"
+    },
+    {
+      "name": "a mode the page does not know is dropped",
+      "op": "format",
+      "state": {
+        "mode": "orthographic"
+      },
+      "fragment": ""
+    },
+    {
+      "name": "switches at their default are left out",
+      "op": "format",
+      "state": {
+        "layers": {
+          "counties": true,
+          "daynight": true,
+          "satellites": false
+        }
+      },
+      "fragment": ""
+    },
+    {
+      "name": "switch differences in the page's order",
+      "op": "format",
+      "state": {
+        "layers": {
+          "sat-starlink": true,
+          "counties": false,
+          "satellites": true,
+          "names": false
+        }
+      },
+      "fragment": "#layers=-counties,-names,+satellites,+sat-starlink"
+    },
+    {
+      "name": "an unknown switch is dropped",
+      "op": "format",
+      "state": {
+        "layers": {
+          "today-anomaly": true
+        }
+      },
+      "fragment": ""
+    },
+    {
+      "name": "a place: six decimals, no name",
+      "op": "format",
+      "state": {
+        "place": {
+          "lat": 50.7374,
+          "lng": 7.0982
+        }
+      },
+      "fragment": "#place=50.737400,7.098200"
+    },
+    {
+      "name": "a place name is percent-encoded",
+      "op": "format",
+      "state": {
+        "place": {
+          "lat": 48.137154,
+          "lng": 11.575382,
+          "name": "Café Luitpold, München"
+        }
+      },
+      "fragment": "#place=48.137154,11.575382/Caf%C3%A9%20Luitpold%2C%20M%C3%BCnchen"
+    },
+    {
+      "name": "a place longitude wraps",
+      "op": "format",
+      "state": {
+        "place": {
+          "lat": -33.8688,
+          "lng": 511.2093
+        }
+      },
+      "fragment": "#place=-33.868800,151.209300"
+    },
+    {
+      "name": "an area",
+      "op": "format",
+      "state": {
+        "area": 62422
+      },
+      "fragment": "#area=r62422"
+    },
+    {
+      "name": "an area that is not a positive integer is dropped",
+      "op": "format",
+      "state": {
+        "area": 0
+      },
+      "fragment": ""
+    },
+    {
+      "name": "unknown pairs follow the keys, as read",
+      "op": "format",
+      "state": {
+        "view": "terrain",
+        "extra": [
+          ["foo", "1"],
+          ["bare", null]
+        ]
+      },
+      "fragment": "#view=terrain&foo=1&bare"
+    },
+    {
+      "name": "every key, in order",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 47.999,
+          "lng": 7.8421,
+          "zoom": 10.25,
+          "bearing": 0,
+          "pitch": 0
+        },
+        "view": "satellite",
+        "mode": "flat",
+        "layers": {
+          "counties": false,
+          "satellites": true
+        },
+        "place": {
+          "lat": 47.995,
+          "lng": 7.85,
+          "name": "Freiburg"
+        },
+        "ask": "today",
+        "area": 62768
+      },
+      "fragment": "#map=10.25/47.999/7.8421&view=satellite&proj=flat&layers=-counties,+satellites&place=47.995000,7.850000/Freiburg&ask=today&area=r62768"
+    },
+    {
+      "name": "ask with a place is written after the place, before the area",
+      "op": "format",
+      "state": {
+        "place": {
+          "lat": 50.7374,
+          "lng": 7.0982
+        },
+        "ask": "today",
+        "area": 62508
+      },
+      "fragment": "#place=50.737400,7.098200&ask=today&area=r62508"
+    },
+    {
+      "name": "ask=sky",
+      "op": "format",
+      "state": {
+        "place": {
+          "lat": 50.7374,
+          "lng": 7.0982
+        },
+        "ask": "sky"
+      },
+      "fragment": "#place=50.737400,7.098200&ask=sky"
+    },
+    {
+      "name": "ask without a place is dropped",
+      "op": "format",
+      "state": {
+        "camera": {
+          "lat": 50.7374,
+          "lng": 7.0982,
+          "zoom": 9
+        },
+        "ask": "today"
+      },
+      "fragment": "#map=9/50.7374/7.0982"
+    },
+    {
+      "name": "an ask the page does not offer is dropped",
+      "op": "format",
+      "state": {
+        "place": {
+          "lat": 50.7374,
+          "lng": 7.0982
+        },
+        "ask": "weather"
+      },
+      "fragment": "#place=50.737400,7.098200"
+    },
+    {
+      "name": "a caller that offers no asks never writes one",
+      "op": "format",
+      "state": {
+        "place": {
+          "lat": 50.7374,
+          "lng": 7.0982
+        },
+        "ask": "today"
+      },
+      "fragment": "#place=50.737400,7.098200",
+      "options": {
+        "asks": []
+      }
+    },
+    {
+      "name": "a fragment over the limit is refused by its caller",
+      "op": "format",
+      "state": {
+        "place": {
+          "lat": 1,
+          "lng": 2,
+          "name": "x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y x y"
+        },
+        "extra": [
+          ["k0", "0123456789"],
+          ["k1", "0123456789"],
+          ["k2", "0123456789"],
+          ["k3", "0123456789"],
+          ["k4", "0123456789"],
+          ["k5", "0123456789"],
+          ["k6", "0123456789"],
+          ["k7", "0123456789"],
+          ["k8", "0123456789"],
+          ["k9", "0123456789"],
+          ["k10", "0123456789"],
+          ["k11", "0123456789"],
+          ["k12", "0123456789"],
+          ["k13", "0123456789"],
+          ["k14", "0123456789"],
+          ["k15", "0123456789"],
+          ["k16", "0123456789"],
+          ["k17", "0123456789"],
+          ["k18", "0123456789"],
+          ["k19", "0123456789"],
+          ["k20", "0123456789"],
+          ["k21", "0123456789"],
+          ["k22", "0123456789"],
+          ["k23", "0123456789"],
+          ["k24", "0123456789"],
+          ["k25", "0123456789"],
+          ["k26", "0123456789"],
+          ["k27", "0123456789"],
+          ["k28", "0123456789"],
+          ["k29", "0123456789"],
+          ["k30", "0123456789"],
+          ["k31", "0123456789"],
+          ["k32", "0123456789"],
+          ["k33", "0123456789"],
+          ["k34", "0123456789"],
+          ["k35", "0123456789"],
+          ["k36", "0123456789"],
+          ["k37", "0123456789"],
+          ["k38", "0123456789"],
+          ["k39", "0123456789"],
+          ["k40", "0123456789"],
+          ["k41", "0123456789"],
+          ["k42", "0123456789"],
+          ["k43", "0123456789"],
+          ["k44", "0123456789"],
+          ["k45", "0123456789"],
+          ["k46", "0123456789"],
+          ["k47", "0123456789"],
+          ["k48", "0123456789"],
+          ["k49", "0123456789"],
+          ["k50", "0123456789"],
+          ["k51", "0123456789"],
+          ["k52", "0123456789"],
+          ["k53", "0123456789"],
+          ["k54", "0123456789"],
+          ["k55", "0123456789"],
+          ["k56", "0123456789"],
+          ["k57", "0123456789"],
+          ["k58", "0123456789"],
+          ["k59", "0123456789"],
+          ["k60", "0123456789"],
+          ["k61", "0123456789"],
+          ["k62", "0123456789"],
+          ["k63", "0123456789"],
+          ["k64", "0123456789"],
+          ["k65", "0123456789"],
+          ["k66", "0123456789"],
+          ["k67", "0123456789"],
+          ["k68", "0123456789"],
+          ["k69", "0123456789"],
+          ["k70", "0123456789"],
+          ["k71", "0123456789"],
+          ["k72", "0123456789"],
+          ["k73", "0123456789"],
+          ["k74", "0123456789"],
+          ["k75", "0123456789"],
+          ["k76", "0123456789"],
+          ["k77", "0123456789"],
+          ["k78", "0123456789"],
+          ["k79", "0123456789"],
+          ["k80", "0123456789"],
+          ["k81", "0123456789"],
+          ["k82", "0123456789"],
+          ["k83", "0123456789"],
+          ["k84", "0123456789"],
+          ["k85", "0123456789"],
+          ["k86", "0123456789"],
+          ["k87", "0123456789"],
+          ["k88", "0123456789"],
+          ["k89", "0123456789"],
+          ["k90", "0123456789"],
+          ["k91", "0123456789"],
+          ["k92", "0123456789"],
+          ["k93", "0123456789"],
+          ["k94", "0123456789"],
+          ["k95", "0123456789"],
+          ["k96", "0123456789"],
+          ["k97", "0123456789"],
+          ["k98", "0123456789"],
+          ["k99", "0123456789"],
+          ["k100", "0123456789"],
+          ["k101", "0123456789"],
+          ["k102", "0123456789"],
+          ["k103", "0123456789"],
+          ["k104", "0123456789"],
+          ["k105", "0123456789"],
+          ["k106", "0123456789"],
+          ["k107", "0123456789"],
+          ["k108", "0123456789"],
+          ["k109", "0123456789"],
+          ["k110", "0123456789"],
+          ["k111", "0123456789"],
+          ["k112", "0123456789"],
+          ["k113", "0123456789"],
+          ["k114", "0123456789"],
+          ["k115", "0123456789"],
+          ["k116", "0123456789"],
+          ["k117", "0123456789"],
+          ["k118", "0123456789"],
+          ["k119", "0123456789"]
+        ]
+      },
+      "fragment": "#place=1.000000,2.000000/x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y%20x%20y&k0=0123456789&k1=0123456789&k2=0123456789&k3=0123456789&k4=0123456789&k5=0123456789&k6=0123456789&k7=0123456789&k8=0123456789&k9=0123456789&k10=0123456789&k11=0123456789&k12=0123456789&k13=0123456789&k14=0123456789&k15=0123456789&k16=0123456789&k17=0123456789&k18=0123456789&k19=0123456789&k20=0123456789&k21=0123456789&k22=0123456789&k23=0123456789&k24=0123456789&k25=0123456789&k26=0123456789&k27=0123456789&k28=0123456789&k29=0123456789&k30=0123456789&k31=0123456789&k32=0123456789&k33=0123456789&k34=0123456789&k35=0123456789&k36=0123456789&k37=0123456789&k38=0123456789&k39=0123456789&k40=0123456789&k41=0123456789&k42=0123456789&k43=0123456789&k44=0123456789&k45=0123456789&k46=0123456789&k47=0123456789&k48=0123456789&k49=0123456789&k50=0123456789&k51=0123456789&k52=0123456789&k53=0123456789&k54=0123456789&k55=0123456789&k56=0123456789&k57=0123456789&k58=0123456789&k59=0123456789&k60=0123456789&k61=0123456789&k62=0123456789&k63=0123456789&k64=0123456789&k65=0123456789&k66=0123456789&k67=0123456789&k68=0123456789&k69=0123456789&k70=0123456789&k71=0123456789&k72=0123456789&k73=0123456789&k74=0123456789&k75=0123456789&k76=0123456789&k77=0123456789&k78=0123456789&k79=0123456789&k80=0123456789&k81=0123456789&k82=0123456789&k83=0123456789&k84=0123456789&k85=0123456789&k86=0123456789&k87=0123456789&k88=0123456789&k89=0123456789&k90=0123456789&k91=0123456789&k92=0123456789&k93=0123456789&k94=0123456789&k95=0123456789&k96=0123456789&k97=0123456789&k98=0123456789&k99=0123456789&k100=0123456789&k101=0123456789&k102=0123456789&k103=0123456789&k104=0123456789&k105=0123456789&k106=0123456789&k107=0123456789&k108=0123456789&k109=0123456789&k110=0123456789&k111=0123456789&k112=0123456789&k113=0123456789&k114=0123456789&k115=0123456789&k116=0123456789&k117=0123456789&k118=0123456789&k119=0123456789",
+      "over_limit": true
+    },
+    {
+      "name": "a link with every key",
+      "op": "parse",
+      "fragment": "#map=10.25/47.999/7.8421&view=satellite&proj=flat&layers=-counties,+satellites&place=47.995000,7.850000/Freiburg&ask=today&area=r62768",
+      "state": {
+        "camera": {
+          "zoom": 10.25,
+          "lat": 47.999,
+          "lng": 7.8421,
+          "bearing": 0,
+          "pitch": 0
+        },
+        "view": "satellite",
+        "mode": "flat",
+        "layers": {
+          "counties": false,
+          "satellites": true
+        },
+        "place": {
+          "lat": 47.995,
+          "lng": 7.85,
+          "name": "Freiburg"
+        },
+        "ask": "today",
+        "area": 62768,
+        "extra": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "ask is read in any order",
+      "op": "parse",
+      "fragment": "#ask=sky&place=50.737400,7.098200",
+      "state": {
+        "place": {
+          "lat": 50.7374,
+          "lng": 7.0982,
+          "name": ""
+        },
+        "ask": "sky",
+        "extra": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "an ask the page does not offer is ignored on its own",
+      "op": "parse",
+      "fragment": "#place=50.737400,7.098200&ask=weather",
+      "state": {
+        "place": {
+          "lat": 50.7374,
+          "lng": 7.0982,
+          "name": ""
+        },
+        "extra": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "ask without a place is read and dropped on write",
+      "op": "parse",
+      "fragment": "#ask=today",
+      "state": {
+        "ask": "today",
+        "extra": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "a page that offers no asks keeps ask verbatim, like an older page",
+      "op": "parse",
+      "fragment": "#place=50.737400,7.098200&ask=today",
+      "state": {
+        "place": {
+          "lat": 50.7374,
+          "lng": 7.0982,
+          "name": ""
+        },
+        "extra": [["ask", "today"]],
+        "legacy": false
+      },
+      "options": {
+        "asks": []
+      }
+    },
+    {
+      "name": "the first of a key that appears twice wins",
+      "op": "parse",
+      "fragment": "#view=terrain&view=satellite",
+      "state": {
+        "view": "terrain",
+        "extra": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "a malformed camera is ignored on its own",
+      "op": "parse",
+      "fragment": "#map=9/abc/7&view=terrain",
+      "state": {
+        "view": "terrain",
+        "extra": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "the legacy form is a camera and a place",
+      "op": "parse",
+      "fragment": "#50.7374,7.0982,12/Bonn",
+      "state": {
+        "camera": {
+          "lat": 50.7374,
+          "lng": 7.0982,
+          "zoom": 12,
+          "bearing": 0,
+          "pitch": 0
+        },
+        "place": {
+          "lat": 50.7374,
+          "lng": 7.0982,
+          "name": "Bonn"
+        },
+        "extra": [],
+        "legacy": true
+      }
+    },
+    {
+      "name": "a fragment over 2,000 characters is ignored whole",
+      "op": "parse",
+      "fragment": "#view=terrain&x=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": {
+        "extra": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "an unknown switch in layers is ignored, the rest read",
+      "op": "parse",
+      "fragment": "#layers=+today-anomaly,-counties",
+      "state": {
+        "layers": {
+          "counties": false
+        },
+        "extra": [],
+        "legacy": false
+      }
+    }
+  ]
+}

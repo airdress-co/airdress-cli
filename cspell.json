@@ -20,7 +20,9 @@
     "target/",
     "Cargo.lock",
     "THIRD-PARTY.md",
-    "tests/fixtures/agent_bus_vectors.json"
+    "tests/fixtures/agent_bus_vectors.json",
+    "crates/airdress-place/src/catalogue-snapshot.json",
+    "crates/airdress-place/tests/fixtures/**"
   ],
   "ignoreRegExpList": [
     "/[A-Za-z0-9+/]{16,}={0,2}/",

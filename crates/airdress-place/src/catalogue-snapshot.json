@@ -1,0 +1,248 @@
+{
+  "schema": 1,
+  "views": [
+    {
+      "id": "map",
+      "name": {
+        "en": "Map",
+        "de": "Karte"
+      }
+    },
+    {
+      "id": "terrain",
+      "name": {
+        "en": "Terrain",
+        "de": "Gelände"
+      }
+    },
+    {
+      "id": "terrain3d",
+      "name": {
+        "en": "3D terrain",
+        "de": "3D-Gelände"
+      }
+    },
+    {
+      "id": "satellite",
+      "name": {
+        "en": "Satellite",
+        "de": "Satellit"
+      }
+    }
+  ],
+  "modes": {
+    "default": "globe",
+    "all": [
+      {
+        "id": "globe",
+        "name": {
+          "en": "Globe",
+          "de": "Globus"
+        }
+      },
+      {
+        "id": "flat",
+        "name": {
+          "en": "Flat",
+          "de": "Flach"
+        }
+      }
+    ]
+  },
+  "switches": {
+    "regions": true,
+    "counties": true,
+    "cities": true,
+    "names": true,
+    "daynight": true,
+    "satellites": false,
+    "sat-stations": true,
+    "sat-gnss": true,
+    "sat-starlink": false,
+    "sat-oneweb": false,
+    "sat-kuiper": false,
+    "sat-qianfan": false,
+    "sat-guowang": false,
+    "sat-tracks": false,
+    "satellites-all": false,
+    "reference-lines": true
+  },
+  "boundaries": [
+    {
+      "id": "regions",
+      "default": true,
+      "name": {
+        "en": "Countries & regions",
+        "de": "Länder & Regionen"
+      }
+    },
+    {
+      "id": "counties",
+      "default": true,
+      "name": {
+        "en": "Counties",
+        "de": "Kreise"
+      }
+    },
+    {
+      "id": "cities",
+      "default": true,
+      "name": {
+        "en": "Cities",
+        "de": "Städte & Gemeinden"
+      }
+    },
+    {
+      "id": "names",
+      "default": true,
+      "name": {
+        "en": "Boundary labels",
+        "de": "Gebietsnamen"
+      }
+    }
+  ],
+  "layers": [
+    {
+      "id": "daynight",
+      "group": "sky",
+      "default": true,
+      "modes": [
+        "globe",
+        "flat"
+      ],
+      "tier": "signed-in",
+      "credit": "",
+      "name": {
+        "en": "Day and night",
+        "de": "Tag und Nacht"
+      },
+      "about": {
+        "en": "Where the sun has set, and the three twilights after it (the sun 6°, 12° and 18° below the horizon), computed on this device each minute.",
+        "de": "Wo die Sonne untergegangen ist, und die drei Dämmerungen danach (die Sonne 6°, 12° und 18° unter dem Horizont), jede Minute auf diesem Gerät berechnet."
+      }
+    },
+    {
+      "id": "satellites",
+      "group": "sky",
+      "default": false,
+      "modes": [
+        "globe",
+        "flat"
+      ],
+      "tier": "signed-in",
+      "credit": "Orbits: USSPACECOM via Space-Track.org",
+      "name": {
+        "en": "Satellites",
+        "de": "Satelliten"
+      },
+      "about": {
+        "en": "Satellites from public orbital element sets (Orbits: USSPACECOM via Space-Track.org), their positions computed on this device. Public element sets are mean elements: approximate positions, not for conjunction assessment or any safety use, and the U.S. Government does not warrant their accuracy.",
+        "de": "Satelliten aus öffentlichen Bahnelementen (Orbits: USSPACECOM via Space-Track.org), ihre Positionen auf diesem Gerät berechnet. Öffentliche Bahnelemente sind mittlere Elemente: Näherungswerte, nicht für Kollisionsvorhersagen oder irgendeinen sicherheitsrelevanten Zweck, und die US-Regierung übernimmt keine Gewähr für ihre Genauigkeit."
+      },
+      "groups": [
+        {
+          "id": "sat-stations",
+          "default": true,
+          "name": {
+            "en": "Space stations",
+            "de": "Raumstationen"
+          }
+        },
+        {
+          "id": "sat-gnss",
+          "default": true,
+          "name": {
+            "en": "Navigation (GPS, GLONASS, Galileo, BeiDou)",
+            "de": "Navigation (GPS, GLONASS, Galileo, BeiDou)"
+          }
+        },
+        {
+          "id": "sat-starlink",
+          "default": false,
+          "name": {
+            "en": "Starlink",
+            "de": "Starlink"
+          }
+        },
+        {
+          "id": "sat-oneweb",
+          "default": false,
+          "name": {
+            "en": "OneWeb",
+            "de": "OneWeb"
+          }
+        },
+        {
+          "id": "sat-kuiper",
+          "default": false,
+          "name": {
+            "en": "Kuiper",
+            "de": "Kuiper"
+          }
+        },
+        {
+          "id": "sat-qianfan",
+          "default": false,
+          "name": {
+            "en": "Qianfan",
+            "de": "Qianfan"
+          }
+        },
+        {
+          "id": "sat-guowang",
+          "default": false,
+          "name": {
+            "en": "Guowang",
+            "de": "Guowang"
+          }
+        }
+      ],
+      "tracks": {
+        "id": "sat-tracks",
+        "default": false,
+        "name": {
+          "en": "All ground tracks",
+          "de": "Alle Bodenspuren"
+        }
+      }
+    },
+    {
+      "id": "satellites-all",
+      "group": "sky",
+      "default": false,
+      "modes": [
+        "globe",
+        "flat"
+      ],
+      "tier": "signed-in",
+      "credit": "Orbits: USSPACECOM via Space-Track.org",
+      "name": {
+        "en": "All satellites",
+        "de": "Alle Satelliten"
+      },
+      "about": {
+        "en": "Every payload in orbit, from public orbital element sets (Orbits: USSPACECOM via Space-Track.org), positions computed on this device. Public element sets are mean elements: approximate positions, not for conjunction assessment or any safety use, and the U.S. Government does not warrant their accuracy.",
+        "de": "Jede Nutzlast im Orbit, aus öffentlichen Bahnelementen (Orbits: USSPACECOM via Space-Track.org), Positionen auf diesem Gerät berechnet. Öffentliche Bahnelemente sind mittlere Elemente: Näherungswerte, nicht für Kollisionsvorhersagen oder irgendeinen sicherheitsrelevanten Zweck, und die US-Regierung übernimmt keine Gewähr für ihre Genauigkeit."
+      }
+    },
+    {
+      "id": "reference-lines",
+      "group": "earth",
+      "default": true,
+      "modes": [
+        "globe",
+        "flat"
+      ],
+      "tier": "signed-in",
+      "credit": "",
+      "name": {
+        "en": "Equator, hemispheres and polar circles",
+        "de": "Äquator, Hemisphären und Polarkreise"
+      },
+      "about": {
+        "en": "The equator, the prime meridian and the 180th meridian, and the Arctic and Antarctic circles at 90° minus Earth's tilt today.",
+        "de": "Der Äquator, der Nullmeridian und der 180. Meridian, und der nördliche und südliche Polarkreis bei 90° minus der heutigen Neigung der Erdachse."
+      }
+    }
+  ]
+}

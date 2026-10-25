@@ -1,0 +1,18 @@
+[package]
+name = "airdress-place"
+version = "0.1.19"
+description = "Pure place logic for Airdress map tools: the map address writer, its switch snapshot and the place-question rules"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# No I/O: everything here is a function of its arguments.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+sha2 = "0.10"
