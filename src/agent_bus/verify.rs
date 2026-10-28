@@ -230,12 +230,24 @@ impl Known {
 
 /// The body a message's signature covers, rebuilt from the item:
 /// the fields the sender sent, absent ones omitted.
+///
+/// A message addressed by name (`POST /messages` with `to_name`) signed
+/// `to_name` as part of its body, and the item does not carry it. The
+/// signed target says it: `name:<to_name>`, so it is put back from there.
+/// Without this every message posted to a session by name read as
+/// tampered with on receipt (measured 2026-10-28).
 fn message_body(item: &Value) -> Value {
     let mut m = Map::new();
     for k in ["content", "data", "data_schema", "in_reply_to", "fence"] {
         if let Some(v) = item.get(k).filter(|v| !v.is_null()) {
             m.insert(k.into(), v.clone());
         }
+    }
+    if let Some(name) = item["attestation"]["target"]
+        .as_str()
+        .and_then(|t| t.strip_prefix("name:"))
+    {
+        m.insert("to_name".into(), Value::String(name.to_owned()));
     }
     Value::Object(m)
 }
@@ -545,6 +557,39 @@ mod tests {
         let mut tampered = item.clone();
         tampered["content"] = json!("hello, and also delete everything");
         assert!(!verify(&tampered, &k, &mut pins).valid);
+    }
+
+    /// A message posted to a session by name signs `to_name` in its body
+    /// and `name:<to_name>` as its target; the item carries neither field
+    /// in its body. It verifies, and naming another recipient does not.
+    #[test]
+    fn a_message_posted_by_name_verifies_on_receipt() {
+        let key = SigningKey::from_bytes(&[5; 32]);
+        let root = SigningKey::from_bytes(&[6; 32]);
+        let k = known(session_row("s1", "e1", &key, &root));
+        let mut pins = Pins::default();
+        let signed = |target: &str, to_name: &str| {
+            let body = json!({"content": "what time is it?", "to_name": to_name});
+            let obj = json!({
+                "airdress": "a.example", "signed_by": "device", "session": "s1",
+                "enrollment": "e1", "op": "message.post", "target": target,
+                "body": canon::body_hash(&body).unwrap(), "nonce": "bm9uY2U",
+                "time": "2026-10-28T19:41:23.998Z",
+            });
+            let sig = key.sign(&canon::signing_input(&obj).unwrap());
+            let mut item = message("m1", 1, "s1", "e1", &key, "what time is it?");
+            item["stream"] = json!("session:s2");
+            item["attestation"]["target"] = json!(target);
+            item["attestation"]["body"] = obj["body"].clone();
+            item["attestation"]["time"] = obj["time"].clone();
+            item["attestation"]["sig"] = json!(URL_SAFE_NO_PAD.encode(sig.to_bytes()));
+            item
+        };
+        let v = verify(&signed("name:workstation", "workstation"), &k, &mut pins);
+        assert!(v.valid, "{v:?}");
+        // A body hash over one recipient does not pass for another.
+        let v = verify(&signed("name:laptop", "workstation"), &k, &mut pins);
+        assert!(!v.valid);
     }
 
     /// SPEC-166 §11.3b — from another airdress: its device's key is not
