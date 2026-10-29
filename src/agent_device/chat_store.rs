@@ -50,6 +50,44 @@ pub struct Message {
     /// there is for that name, whatever it mentions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub for_session: Option<String>,
+    /// The sender's reference for this message (SPEC-174 FR-4), what a
+    /// reply names it by. Absent on a message from an older client and on
+    /// everything stored before replies existed.
+    #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
+    pub msg_ref: Option<String>,
+    /// The message this one answers, as this host resolved it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<Reply>,
+    /// The session on this machine that wrote it, when one did and its
+    /// signature was checked: what makes a reply to it addressed to that
+    /// session (FR-32).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_session: Option<String>,
+    /// What the message holds (`text`, `code`, `image`, `audio`, `place`,
+    /// `live`, `other`), for a quote of it. Absent means text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Its text and code, as a quote of it is cut from (the app's copy
+    /// text). Absent means `text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quotable: Option<String>,
+}
+
+/// The message a reply answers, as `chat_read` returns it: the original's
+/// id on this machine when the host holds it, who wrote it, and the quoted
+/// words — the host's own copy when it has one, else the sender's snippet.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Reply {
+    pub message_id: Option<String>,
+    /// The original's sending airdress.
+    pub from: String,
+    /// The session that wrote the original: this host's record when
+    /// resolved, else what the reply says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_session: Option<String>,
+    pub kind: String,
+    pub text: String,
+    pub resolved: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -216,6 +254,27 @@ impl ChatStore {
         self.save()
     }
 
+    /// The oldest message in `conversation` from `from` with the reference
+    /// `msg_ref`: what a reply naming them answers. Scoped to the sender,
+    /// so one sender's reference cannot point a quote at another's message
+    /// (FR-9).
+    pub fn find_ref(&self, conversation: &str, from: &str, msg_ref: &str) -> Option<&Message> {
+        self.doc
+            .conversations
+            .get(conversation)?
+            .iter()
+            .find(|m| m.from == from && m.msg_ref.as_deref() == Some(msg_ref))
+    }
+
+    /// The message `message_id` in `conversation`.
+    pub fn get(&self, conversation: &str, message_id: &str) -> Option<&Message> {
+        self.doc
+            .conversations
+            .get(conversation)?
+            .iter()
+            .find(|m| m.message_id == message_id)
+    }
+
     /// Messages after `after` (exclusive), in one conversation or all,
     /// oldest first, at most `limit`.
     pub fn read(&self, conversation: Option<&str>, after: i64, limit: usize) -> Vec<Message> {
@@ -256,6 +315,11 @@ mod tests {
             text: format!("text {id}"),
             at,
             for_session: None,
+            msg_ref: None,
+            reply_to: None,
+            by_session: None,
+            kind: None,
+            quotable: None,
         }
     }
 
@@ -314,6 +378,38 @@ mod tests {
         let c2 = s.read(Some("c2"), 0, usize::MAX);
         assert_eq!(c2.len(), KEEP_PER_CONVERSATION);
         assert_eq!(c2[0].message_id, "m5");
+    }
+
+    /// A store sealed by a release from before replies (no `ref`,
+    /// `reply_to`, `by_session`, `kind` or `quotable`) opens, and its
+    /// messages read as having none.
+    #[test]
+    fn a_store_written_before_replies_still_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = serde_json::json!({
+            "head": 1,
+            "conversations": {"c1": [{
+                "seq": 1, "message_id": "e1", "conversation_id": "c1",
+                "from": "bob.example", "lane": "assigned", "from_self": false,
+                "text": "hello", "at": "2026-10-20T10:00:00Z",
+            }]},
+            "seen": ["e1"],
+            "delivered": {},
+        });
+        let key = [5; 32];
+        let sealed = seal(&key, &serde_json::to_vec(&old).unwrap()).unwrap();
+        std::fs::write(dir.path().join(FILE), sealed).unwrap();
+        let s = ChatStore::open(dir.path(), key).unwrap();
+        let m = &s.read(None, 0, 10)[0];
+        assert_eq!(m.text, "hello");
+        assert_eq!(m.msg_ref, None);
+        assert_eq!(m.reply_to, None);
+        assert_eq!(m.by_session, None);
+        // And it serialises as it did: no new keys on an old message.
+        let v = serde_json::to_value(m).unwrap();
+        for k in ["ref", "reply_to", "by_session", "kind", "quotable"] {
+            assert!(v.get(k).is_none(), "{k}");
+        }
     }
 
     #[test]

@@ -19,8 +19,11 @@
 //!   on the stream like any envelope. This device never seats itself.
 //!
 //! Socket operations: `chat.conversations`, `chat.read {conversation_id?,
-//! after?, limit}`, `chat.send {conversation_id, text}`, `chat.wait
-//! {after?, timeout_ms}` (a long poll; `after: null` answers the head).
+//! after?, limit}`, `chat.send {conversation_id, text,
+//! reply_to_message_id?, reply_to?}`, `chat.reply_ref {conversation_id,
+//! message_id}` (the `reply_to` a reply to that message carries),
+//! `chat.wait {after?, timeout_ms}` (a long poll; `after: null` answers
+//! the head).
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -37,7 +40,8 @@ use reqwest::Method;
 use serde_json::{json, Value};
 use tokio::sync::{Mutex, Notify};
 
-use super::chat_store::{ChatStore, Message};
+use super::chat_store::{ChatStore, Message, Reply};
+use super::reply;
 use super::store::{AgentDevice, AgentStore};
 use crate::agent_bus::session_sig;
 use crate::log_err::LogErr as _;
@@ -311,6 +315,17 @@ pub fn text_of(blocks: &Value) -> String {
         .join("\n")
 }
 
+/// The reference and the `reply_to` a decrypted message's payload carried.
+///
+/// The pinned `airdress-mls-client` decoder keeps only `origin` and
+/// `blocks` of the payload's object form, so both are absent until it
+/// carries them too (SPEC-174 174-A.1); then this is the one place that
+/// reads them. Until then a reply arrives as the replier's words, as on
+/// any older host.
+fn lane_extras(_m: &airdress_mls_client::Message) -> (Option<String>, Option<Value>) {
+    (None, None)
+}
+
 impl Chat {
     pub fn new(store: AgentStore) -> Self {
         Self {
@@ -521,6 +536,45 @@ impl Chat {
         Ok(())
     }
 
+    /// A received reply, resolved against what this machine holds.
+    async fn resolve_reply(&self, conversation: &str, wire: &reply::WireReply) -> Option<Reply> {
+        let guard = self.messages.lock().await;
+        Some(reply::resolve(guard.as_ref()?, conversation, wire))
+    }
+
+    /// The `reply_to` this host sends to answer `message_id` in
+    /// `conversation`, or the refusal `reply_target_unknown`.
+    async fn reply_wire(
+        &self,
+        conversation: &str,
+        message_id: &str,
+    ) -> std::result::Result<(Value, Reply), Value> {
+        let guard = self.messages.lock().await;
+        let original = guard
+            .as_ref()
+            .and_then(|s| s.get(conversation, message_id))
+            .ok_or_else(|| {
+                refusal(
+                    "reply_target_unknown",
+                    "this machine holds no message with that id in that conversation; \
+                     take the id from chat_read or a pushed message",
+                )
+            })?;
+        let wire = reply::wire_of(original);
+        let resolved = Reply {
+            message_id: Some(original.message_id.clone()),
+            from: original.from.clone(),
+            by_session: original.by_session.clone(),
+            kind: original.kind.clone().unwrap_or_else(|| "text".into()),
+            text: original
+                .quotable
+                .clone()
+                .unwrap_or_else(|| original.text.clone()),
+            resolved: true,
+        };
+        Ok((wire, resolved))
+    }
+
     /// Publish key packages so a phone can add this device to a
     /// conversation it was assigned.
     async fn publish_key_packages(&self, api: &Api) -> Result<()> {
@@ -584,6 +638,11 @@ impl Chat {
                 };
                 let lane = self.lane_of(&m.conversation_id).await;
                 let for_session = self.session_of(&m.conversation_id).await;
+                let (msg_ref, reply_wire) = lane_extras(m);
+                let reply_to = match reply_wire.as_ref().and_then(reply::parse) {
+                    Some(w) => self.resolve_reply(&m.conversation_id, &w).await,
+                    None => None,
+                };
                 self.keep(Message {
                     seq: 0,
                     message_id: m.envelope_id.clone(),
@@ -598,6 +657,11 @@ impl Chat {
                         .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
                         .map_or_else(Utc::now, |t| t.with_timezone(&Utc)),
                     for_session,
+                    msg_ref,
+                    reply_to,
+                    by_session: None,
+                    kind: Some(reply::kind_of(&m.blocks).to_owned()),
+                    quotable: Some(reply::quotable_text(&m.blocks)),
                 })
                 .await?;
             }
@@ -785,6 +849,7 @@ impl Chat {
             "chat.wait" => Ok(self.wait_as(req, dev).await),
             "chat.group" => Ok(self.group(req).await),
             "chat.send" => self.send(&creds, req, dev).await,
+            "chat.reply_ref" => Ok(self.reply_ref(req).await),
             _ => return refusal("unknown_op", "no such chat operation"),
         };
         answer.unwrap_or_else(|e| refusal("failed", &format!("{e:#}")))
@@ -814,7 +879,30 @@ impl Chat {
         let after = req["after"].as_i64().unwrap_or(0);
         let msgs = store.read(req["conversation_id"].as_str(), after, limit);
         let next = msgs.last().map(|m| m.seq);
-        json!({"ok": true, "messages": msgs, "next_cursor": next, "head": store.head()})
+        let mut v =
+            json!({"ok": true, "messages": msgs, "next_cursor": next, "head": store.head()});
+        // The quote source is the host's, for building quotes; a reader
+        // has the text.
+        for m in v["messages"].as_array_mut().into_iter().flatten() {
+            if let Some(o) = m.as_object_mut() {
+                o.remove("quotable");
+            }
+        }
+        v
+    }
+
+    /// `chat.reply_ref`: the `reply_to` object a reply to `message_id`
+    /// carries, for a session to sign before it sends (design §7.3).
+    async fn reply_ref(&self, req: &Value) -> Value {
+        let (Some(conversation), Some(id)) =
+            (req["conversation_id"].as_str(), req["message_id"].as_str())
+        else {
+            return refusal("bad_request", "conversation_id and message_id are required");
+        };
+        match self.reply_wire(conversation, id).await {
+            Ok((wire, _)) => json!({"ok": true, "reply_to": wire}),
+            Err(refused) => refused,
+        }
     }
 
     /// A wait, and for a named session that sent its key, the delegation
@@ -963,6 +1051,7 @@ impl Chat {
         dev: &AgentDevice,
         conversation: &str,
         text: &str,
+        reply_to: Option<&Value>,
         by: &Value,
     ) -> std::result::Result<Option<Value>, Value> {
         let group = {
@@ -979,7 +1068,7 @@ impl Chat {
             &dev.record.airdress,
             &dev.record.device_id,
             text,
-            None,
+            reply_to,
             group.as_deref(),
             Utc::now(),
         )
@@ -1014,17 +1103,45 @@ impl Chat {
                  open the conversation on a phone that is in it",
             ));
         }
+        // A reply: the host builds `reply_to` from its own store, and a
+        // session's copy (the one it signed) must be that, byte for byte
+        // in meaning, or nothing is sent.
+        let reply = match req["reply_to_message_id"].as_str() {
+            Some(id) => match self.reply_wire(&conversation, id).await {
+                Ok(r) => Some(r),
+                Err(refused) => return Ok(refused),
+            },
+            None => None,
+        };
+        if let Some(theirs) = req.get("reply_to").filter(|r| !r.is_null()) {
+            if reply.as_ref().map(|(w, _)| w) != Some(theirs) {
+                return Ok(refusal(
+                    "reply_mismatch",
+                    "the reply_to sent is not the one this machine builds for that message; \
+                     ask chat.reply_ref again and sign what it answers",
+                ));
+            }
+        }
+        let reply_wire = reply.as_ref().map(|(w, _)| w);
         let mut block = json!({"type": "text", "text": text});
+        let mut signed_by: Option<String> = None;
         if let Some(by) = req.get("by_session").filter(|b| b.is_object()) {
-            match self.by_session(dev, &conversation, &text, by).await {
-                Ok(Some(b)) => block["by_session"] = b,
+            match self
+                .by_session(dev, &conversation, &text, reply_wire, by)
+                .await
+            {
+                Ok(Some(b)) => {
+                    signed_by = b["delegation"]["session_name"].as_str().map(str::to_owned);
+                    block["by_session"] = b;
+                }
                 // No group yet (the own lane's first message): sent as the
                 // device, its prefix plain text.
                 Ok(None) => {}
                 Err(refused) => return Ok(refused),
             }
         }
-        let payload = serde_json::to_vec(&json!([block]))?;
+        let msg_ref = reply::mint_ref();
+        let payload = serde_json::to_vec(&reply::payload(json!([block]), &msg_ref, reply_wire))?;
         let encrypted = {
             let mut guard = self.client.lock().await;
             let client = guard.as_mut().context("chat is not open")?;
@@ -1078,9 +1195,14 @@ impl Chat {
             from: creds.airdress.clone(),
             lane: conversation_row.lane.into(),
             from_self: true,
+            quotable: Some(text.clone()),
             text,
             at: Utc::now(),
             for_session: None,
+            msg_ref: Some(msg_ref),
+            reply_to: reply.map(|(_, r)| r),
+            by_session: signed_by,
+            kind: Some("text".into()),
         })
         .await?;
         Ok(json!({"ok": true, "message_id": id}))

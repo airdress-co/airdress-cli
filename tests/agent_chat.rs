@@ -269,7 +269,13 @@ async fn mock() -> (String, Arc<Mutex<Op>>) {
                             (200, json!({"key_package": STANDARD.encode(&kp[0])}))
                         }
                         ("POST", p) if p == format!("/v1/chat/conversations/{LANE}/envelopes") => {
-                            assert_eq!(body["target_airdress"], AGENT_LANE_TARGET);
+                            // Only the founding posts name the target; a later
+                            // message's conversation already says it.
+                            assert!(
+                                body["target_airdress"] == AGENT_LANE_TARGET
+                                    || body["target_airdress"].is_null(),
+                                "{body}"
+                            );
                             s.posted.push(body.clone());
                             agent_receives(&mut s, &body);
                             (
@@ -528,6 +534,88 @@ async fn the_own_lane_round_trips_with_the_operators_agent() {
     // The message store is sealed on disk.
     let raw = std::fs::read(store.dir().join("chat").join("messages.sealed")).unwrap();
     assert!(!String::from_utf8_lossy(&raw).contains("hello operator"));
+
+    // Every message this device sends carries a reference.
+    let own = &read["messages"][0];
+    assert!(own["ref"].as_str().is_some_and(|r| r.len() == 22), "{own}");
+
+    // A reply: the host builds reply_to from its own copy of the original.
+    let original = reply["message_id"].as_str().unwrap().to_owned();
+    let unknown = host::call(
+        &store,
+        &json!({"op": "chat.reply_ref", "conversation_id": LANE, "message_id": "no-such"}),
+    )
+    .await;
+    assert!(
+        format!("{unknown:?}").contains("holds no message with that id"),
+        "{unknown:?}"
+    );
+    let built = ask(
+        &store,
+        json!({"op": "chat.reply_ref", "conversation_id": LANE, "message_id": original}),
+    )
+    .await;
+    assert_eq!(built["ok"], true, "{built}");
+    let wire = built["reply_to"].clone();
+    assert_eq!(wire["snippet"], "you said: hello operator");
+    assert_eq!(wire["kind"], "text");
+    assert_eq!(wire["from"], "operator");
+    // The operator's agent mints no reference yet: a quote-only reply.
+    assert!(wire.get("ref").is_none(), "{wire}");
+
+    let mut forged = wire.clone();
+    forged["snippet"] = json!("words it never said");
+    let mismatch = host::call(
+        &store,
+        &json!({"op": "chat.send", "conversation_id": LANE, "text": "no",
+               "reply_to_message_id": original, "reply_to": forged}),
+    )
+    .await;
+    assert!(
+        format!("{mismatch:?}").contains("not the one this machine builds"),
+        "{mismatch:?}"
+    );
+    let gone = host::call(
+        &store,
+        &json!({"op": "chat.send", "conversation_id": LANE, "text": "no",
+               "reply_to_message_id": "no-such"}),
+    )
+    .await;
+    assert!(
+        format!("{gone:?}").contains("holds no message with that id"),
+        "{gone:?}"
+    );
+    let heard_before = op.lock().unwrap().heard.len();
+
+    let answered = ask(
+        &store,
+        json!({"op": "chat.send", "conversation_id": LANE, "text": "thanks",
+               "reply_to_message_id": original, "reply_to": wire}),
+    )
+    .await;
+    assert_eq!(answered["ok"], true, "{answered}");
+    // An older decoder (the operator's agent here) reads the object form
+    // with its new keys as the words alone, and nothing refused got sent.
+    {
+        let s = op.lock().unwrap();
+        assert_eq!(s.heard.len(), heard_before + 1);
+        assert_eq!(s.heard.last().unwrap().1, "thanks");
+    }
+    let read = ask(&store, json!({"op": "chat.read", "conversation_id": LANE})).await;
+    let mine = read["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["text"] == "thanks")
+        .unwrap()
+        .clone();
+    assert_eq!(mine["reply_to"]["message_id"], original);
+    assert_eq!(mine["reply_to"]["text"], "you said: hello operator");
+    assert_eq!(mine["reply_to"]["resolved"], true);
+    assert!(
+        mine.get("quotable").is_none(),
+        "the quote source stays inside"
+    );
 
     cancel.cancel();
     task.await.unwrap().unwrap();
