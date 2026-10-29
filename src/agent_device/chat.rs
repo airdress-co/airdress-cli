@@ -979,6 +979,7 @@ impl Chat {
             &dev.record.airdress,
             &dev.record.device_id,
             text,
+            None,
             group.as_deref(),
             Utc::now(),
         )

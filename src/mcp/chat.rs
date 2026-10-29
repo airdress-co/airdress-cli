@@ -167,7 +167,7 @@ pub async fn call(
             // Signed by this session when the host has delegated to it and
             // the conversation has a group (design §11.6); otherwise the
             // phone shows the device, and the prefix stays plain text.
-            if let Some(by) = by_session(session, fqdn, conversation, &name, text).await {
+            if let Some(by) = by_session(session, fqdn, conversation, &name, text, None).await {
                 req["by_session"] = by;
             }
             let v = ask(session, fqdn, req).await?;
@@ -198,6 +198,7 @@ async fn by_session(
     conversation: &str,
     name: &str,
     text: &str,
+    reply_to: Option<&Value>,
 ) -> Option<Value> {
     let delegation = session.session_delegation.lock().await.clone()?;
     if delegation["session_name"].as_str() != Some(name) {
@@ -211,7 +212,9 @@ async fn by_session(
     .await
     .ok()?;
     let group = URL_SAFE_NO_PAD.decode(g["group_id"].as_str()?).ok()?;
-    let sig = session_sig::sign(&session.session_key, &group, name, text);
+    let sig = session_sig::sign(&session.session_key, &group, name, text, reply_to)
+        .map_err(|e| tracing::debug!(error = %e, "chat: not signed"))
+        .ok()?;
     Some(json!({"delegation": delegation, "sig": sig}))
 }
 
