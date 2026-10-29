@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use airdress_mls::credential::test_support::signed_delegation_json_v2;
 use airdress_mls::MlsEngine;
-use airdress_mls_client::{Client, Event, InboundEnvelope};
+use airdress_mls_client::{mint_message_ref, Client, Event, InboundEnvelope, LanePayload, ReplyTo};
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine as _;
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -48,6 +48,10 @@ struct Op {
     published: usize,
     posted: Vec<Value>,
     heard: Vec<(String, String)>,
+    /// The reference and the reply_to of each message the agent heard.
+    heard_refs: Vec<(Option<String>, Option<ReplyTo>)>,
+    /// The reference of each answer the agent sent.
+    answer_refs: Vec<String>,
     outbox: VecDeque<Value>,
     acked: Vec<String>,
     agent: Option<Agent>,
@@ -116,11 +120,27 @@ fn agent_receives(op: &mut Op, body: &Value) {
     if let Event::Message(m) = processed.event {
         let text = m.blocks[0]["text"].as_str().unwrap().to_owned();
         op.heard.push((m.from_airdress.clone(), text.clone()));
-        let reply = serde_json::to_vec(&json!({
-            "origin": "agent",
-            "blocks": [{"type": "text", "text": format!("you said: {text}")}],
-        }))
+        op.heard_refs.push((m.r#ref.clone(), m.reply_to.clone()));
+        // The agent answers as a reply to what it heard, by its reference.
+        let answer_ref = mint_message_ref();
+        op.answer_refs.push(answer_ref.clone());
+        let mut reply: Value = serde_json::from_slice(
+            &LanePayload::encode_message(
+                &json!([{"type": "text", "text": format!("you said: {text}")}]),
+                &answer_ref,
+                Some(&ReplyTo {
+                    r#ref: m.r#ref.clone(),
+                    from: m.from_airdress.clone(),
+                    by_session: None,
+                    kind: "text".into(),
+                    snippet: text.clone(),
+                }),
+            )
+            .unwrap(),
+        )
         .unwrap();
+        reply["origin"] = json!("agent");
+        let reply = serde_json::to_vec(&reply).unwrap();
         let out = agent
             .client
             .encrypt(LANE, &reply, AGENT_LANE_TARGET)
@@ -535,9 +555,26 @@ async fn the_own_lane_round_trips_with_the_operators_agent() {
     let raw = std::fs::read(store.dir().join("chat").join("messages.sealed")).unwrap();
     assert!(!String::from_utf8_lossy(&raw).contains("hello operator"));
 
-    // Every message this device sends carries a reference.
+    // Every message this device sends carries a reference, which the
+    // other member decrypts with it.
     let own = &read["messages"][0];
     assert!(own["ref"].as_str().is_some_and(|r| r.len() == 22), "{own}");
+    {
+        let s = op.lock().unwrap();
+        assert_eq!(s.heard_refs[0].0.as_deref(), own["ref"].as_str());
+        assert_eq!(s.heard_refs[0].1, None, "a plain message is no reply");
+    }
+    // The agent's answer arrived over MLS as a reply: its reference and its
+    // reply_to reached the host, which resolved it to its own message.
+    let answer_ref = op.lock().unwrap().answer_refs[0].clone();
+    assert_eq!(reply["ref"], json!(answer_ref));
+    assert_eq!(
+        reply["reply_to"]["message_id"], own["message_id"],
+        "{reply}"
+    );
+    assert_eq!(reply["reply_to"]["text"], "hello operator");
+    assert_eq!(reply["reply_to"]["from"], AIRDRESS);
+    assert_eq!(reply["reply_to"]["resolved"], true);
 
     // A reply: the host builds reply_to from its own copy of the original.
     let original = reply["message_id"].as_str().unwrap().to_owned();
@@ -560,8 +597,7 @@ async fn the_own_lane_round_trips_with_the_operators_agent() {
     assert_eq!(wire["snippet"], "you said: hello operator");
     assert_eq!(wire["kind"], "text");
     assert_eq!(wire["from"], "operator");
-    // The operator's agent mints no reference yet: a quote-only reply.
-    assert!(wire.get("ref").is_none(), "{wire}");
+    assert_eq!(wire["ref"], json!(answer_ref));
 
     let mut forged = wire.clone();
     forged["snippet"] = json!("words it never said");
@@ -600,6 +636,10 @@ async fn the_own_lane_round_trips_with_the_operators_agent() {
         let s = op.lock().unwrap();
         assert_eq!(s.heard.len(), heard_before + 1);
         assert_eq!(s.heard.last().unwrap().1, "thanks");
+        // And a member on the shared decoder gets the reply itself.
+        let (sent_ref, sent_reply) = s.heard_refs.last().unwrap().clone();
+        assert!(sent_ref.is_some());
+        assert_eq!(serde_json::to_value(sent_reply.unwrap()).unwrap(), wire);
     }
     let read = ask(&store, json!({"op": "chat.read", "conversation_id": LANE})).await;
     let mine = read["messages"]

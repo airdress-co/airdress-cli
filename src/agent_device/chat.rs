@@ -315,15 +315,16 @@ pub fn text_of(blocks: &Value) -> String {
         .join("\n")
 }
 
-/// The reference and the `reply_to` a decrypted message's payload carried.
-///
-/// The pinned `airdress-mls-client` decoder keeps only `origin` and
-/// `blocks` of the payload's object form, so both are absent until it
-/// carries them too (SPEC-174 174-A.1); then this is the one place that
-/// reads them. Until then a reply arrives as the replier's words, as on
-/// any older host.
-fn lane_extras(_m: &airdress_mls_client::Message) -> (Option<String>, Option<Value>) {
-    (None, None)
+/// The reference and the `reply_to` a decrypted message's payload carried,
+/// as the shared decoder read them; `reply::parse` then holds `reply_to`
+/// to this host's own checks.
+fn lane_extras(m: &airdress_mls_client::Message) -> (Option<String>, Option<Value>) {
+    (
+        m.r#ref.clone(),
+        m.reply_to
+            .as_ref()
+            .and_then(|r| serde_json::to_value(r).ok()),
+    )
 }
 
 impl Chat {
@@ -1141,7 +1142,7 @@ impl Chat {
             }
         }
         let msg_ref = reply::mint_ref();
-        let payload = serde_json::to_vec(&reply::payload(json!([block]), &msg_ref, reply_wire))?;
+        let payload = reply::payload(&json!([block]), &msg_ref, reply_wire)?;
         let encrypted = {
             let mut guard = self.client.lock().await;
             let client = guard.as_mut().context("chat is not open")?;

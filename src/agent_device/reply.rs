@@ -11,9 +11,10 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use rand::RngCore as _;
-use serde_json::{json, Map, Value};
+use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation as _;
+
+use airdress_mls_client::{LanePayload, ReplyTo};
 
 use super::chat_store::{ChatStore, Message, Reply};
 use crate::quote::is_bidi_control;
@@ -22,12 +23,8 @@ pub use crate::quote::{snippet, SNIPPET_MAX};
 /// The kinds a quote can name.
 pub const KINDS: &[&str] = &["text", "code", "image", "audio", "place", "live", "other"];
 
-/// A fresh reference: 16 random bytes, base64url without padding.
-pub fn mint_ref() -> String {
-    let mut b = [0u8; 16];
-    rand::rngs::OsRng.fill_bytes(&mut b);
-    URL_SAFE_NO_PAD.encode(b)
-}
+/// A fresh reference, as the shared client mints it.
+pub use airdress_mls_client::mint_message_ref as mint_ref;
 
 /// Whether `s` is a reference as minted: 22 base64url characters that
 /// decode to 16 bytes. Anything else is ignored.
@@ -149,35 +146,43 @@ pub fn resolve(store: &ChatStore, conversation: &str, wire: &WireReply) -> Reply
 /// this machine that wrote it, its kind and its snippet. Deterministic, so
 /// the host can rebuild it and compare (`reply_mismatch`).
 pub fn wire_of(original: &Message) -> Value {
-    let mut o = Map::new();
-    if let Some(r) = original.msg_ref.as_deref().filter(|r| is_ref(r)) {
-        o.insert("ref".into(), json!(r));
-    }
-    o.insert("from".into(), json!(original.from));
-    if let Some(s) = &original.by_session {
-        o.insert("by_session".into(), json!(s));
-    }
-    let kind = original.kind.as_deref().unwrap_or("text");
-    o.insert("kind".into(), json!(kind));
     let source = original.quotable.as_deref().unwrap_or(&original.text);
-    o.insert("snippet".into(), json!(snippet(source)));
-    Value::Object(o)
+    let typed = ReplyTo {
+        r#ref: original.msg_ref.clone().filter(|r| is_ref(r)),
+        from: original.from.clone(),
+        by_session: original.by_session.clone(),
+        kind: original.kind.clone().unwrap_or_else(|| "text".into()),
+        snippet: snippet(source),
+    };
+    // Through the shared type, so what is signed is what it sends.
+    serde_json::to_value(&typed).unwrap_or(Value::Null)
 }
 
-/// The plaintext this host sends: the object form, with the blocks, this
-/// message's reference and, for a reply, `reply_to`.
-pub fn payload(blocks: Value, msg_ref: &str, reply_to: Option<&Value>) -> Value {
-    let mut p = json!({"blocks": blocks, "ref": msg_ref});
-    if let Some(r) = reply_to {
-        p["reply_to"] = r.clone();
-    }
-    p
+/// The plaintext this host sends: the shared client's object form, with
+/// the blocks, this message's reference and, for a reply, `reply_to`. The
+/// `reply_to` sent is the one given, byte for byte in meaning, or nothing
+/// is sent: a session signed exactly that object.
+///
+/// # Errors
+/// `reply_to` is not one the shared type carries unchanged.
+pub fn payload(blocks: &Value, msg_ref: &str, reply_to: Option<&Value>) -> anyhow::Result<Vec<u8>> {
+    let typed = match reply_to {
+        Some(v) => {
+            let t = ReplyTo::from_value(v)
+                .filter(|t| serde_json::to_value(t).ok().as_ref() == Some(v))
+                .ok_or_else(|| anyhow::anyhow!("a reply_to the payload cannot carry unchanged"))?;
+            Some(t)
+        }
+        None => None,
+    };
+    LanePayload::encode_message(blocks, msg_ref, typed.as_ref()).map_err(anyhow::Error::msg)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::Utc;
+    use serde_json::json;
 
     fn stored(id: &str, from: &str, msg_ref: Option<&str>, text: &str) -> Message {
         Message {
@@ -313,27 +318,23 @@ mod tests {
     }
 
     /// What this host sends is read by the decoder every device shares:
-    /// the blocks as before, the new keys ignored by it and kept at the top.
+    /// the blocks, the reference and the reply as sent.
     #[test]
     fn the_hosts_payload_decodes_with_the_shared_decoder() {
         let r = mint_ref();
         let quote = json!({"from": "home.example", "kind": "text", "snippet": "hi"});
         let blocks = json!([{"type": "text", "text": "bob: yes"}]);
-        let p = payload(blocks.clone(), &r, Some(&quote));
-        let bytes = serde_json::to_vec(&p).unwrap();
-        let d = airdress_mls_client::LanePayload::decode(&bytes).unwrap();
+        let bytes = payload(&blocks, &r, Some(&quote)).unwrap();
+        let d = LanePayload::decode(&bytes).unwrap();
         assert_eq!(d.blocks, blocks);
         assert_eq!(d.origin, None);
-        let raw: Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(raw["ref"], json!(r));
-        assert_eq!(raw["reply_to"], quote);
-        let plain = payload(blocks.clone(), &r, None);
-        assert!(plain.get("reply_to").is_none());
-        assert_eq!(
-            airdress_mls_client::LanePayload::decode(&serde_json::to_vec(&plain).unwrap())
-                .unwrap()
-                .blocks,
-            blocks
-        );
+        assert_eq!(d.r#ref.as_deref(), Some(r.as_str()));
+        assert_eq!(serde_json::to_value(d.reply_to.unwrap()).unwrap(), quote);
+        let plain = LanePayload::decode(&payload(&blocks, &r, None).unwrap()).unwrap();
+        assert_eq!(plain.blocks, blocks);
+        assert_eq!(plain.reply_to, None);
+        // A reply_to the shared type would change is never sent.
+        let odd = json!({"from": "home.example", "kind": "text", "snippet": "hi", "x": 1});
+        assert!(payload(&blocks, &r, Some(&odd)).is_err());
     }
 }

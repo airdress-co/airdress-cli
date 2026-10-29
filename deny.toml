@@ -46,13 +46,14 @@ ignore = [
   "RUSTSEC-2026-0370",
   "RUSTSEC-2026-0371",
   "RUSTSEC-2026-0372",
-  # cspell:ignore rustcrypto CHACHA
+  # cspell:ignore rustcrypto
   # 2026-10-24: crypto-bigint 0.5 timing variability; fixed only in 0.7.6
-  # (0.7 is updated). 0.5 reaches us through p256 0.13 in two places, and
-  # neither runs a secret through it: mls-rs-crypto-rustcrypto compiles P-256
-  # but airdress-mls uses only CURVE25519_CHACHA, and airdress-shell-proto
-  # verifies P-256 signatures (public inputs) and signs only in its
-  # conformance test generator. Remove when p256 0.13 leaves the tree.
+  # (0.7 is updated). Since airdress-mls 0.6.0 (mls-rs-crypto-rustcrypto
+  # 0.23 is on p256 0.14) 0.5 reaches us only through p256 0.13 in
+  # airdress-shell-proto and airdress-shell-host, which verify P-256
+  # signatures (public inputs) and sign only in the conformance test
+  # generator: no secret runs through it. Remove when the shell crates move
+  # to p256 0.14.
   "RUSTSEC-2026-0387",
 ]
 
