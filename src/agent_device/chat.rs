@@ -41,6 +41,7 @@ use serde_json::{json, Value};
 use tokio::sync::{Mutex, Notify};
 
 use super::chat_store::{ChatStore, Message, Reply};
+use super::formatted;
 use super::reply;
 use super::store::{AgentDevice, AgentStore};
 use crate::agent_bus::session_sig;
@@ -1124,23 +1125,23 @@ impl Chat {
             }
         }
         let reply_wire = reply.as_ref().map(|(w, _)| w);
-        let mut block = json!({"type": "text", "text": text});
-        let mut signed_by: Option<String> = None;
+        let mut signed: Option<Value> = None;
         if let Some(by) = req.get("by_session").filter(|b| b.is_object()) {
             match self
                 .by_session(dev, &conversation, &text, reply_wire, by)
                 .await
             {
-                Ok(Some(b)) => {
-                    signed_by = b["delegation"]["session_name"].as_str().map(str::to_owned);
-                    block["by_session"] = b;
-                }
-                // No group yet (the own lane's first message): sent as the
-                // device, its prefix plain text.
-                Ok(None) => {}
+                Ok(b) => signed = b,
                 Err(refused) => return Ok(refused),
             }
         }
+        // No group yet (the own lane's first message): sent as the device,
+        // its prefix plain text.
+        let signed_by: Option<String> = signed
+            .as_ref()
+            .and_then(|b| b["delegation"]["session_name"].as_str())
+            .map(str::to_owned);
+        let block = text_block(&text, signed);
         let msg_ref = reply::mint_ref();
         let payload = reply::payload(&json!([block]), &msg_ref, reply_wire)?;
         let encrypted = {
@@ -1208,6 +1209,25 @@ impl Chat {
         .await?;
         Ok(json!({"ok": true, "message_id": id}))
     }
+}
+
+/// The one text block a send carries. A session's signed reply also
+/// carries its markdown as blocks, beside the text it signed (SPEC-166
+/// D-20): the app is told the text is markdown, never left to guess, and
+/// the text and its signature are unchanged, so an older app shows it as
+/// before. A reply with nothing but plain paragraphs carries no blocks.
+fn text_block(text: &str, by_session: Option<Value>) -> Value {
+    let mut block = json!({"type": "text", "text": text});
+    let Some(by) = by_session else {
+        return block;
+    };
+    if let Some(name) = by["delegation"]["session_name"].as_str() {
+        if let Some(blocks) = formatted::formatted(formatted::body_of(text, name)) {
+            block["formatted"] = Value::Array(blocks);
+        }
+    }
+    block["by_session"] = by;
+    block
 }
 
 #[cfg(test)]
@@ -1285,6 +1305,31 @@ mod tests {
         assert!(!is_peer_airdress("self.local", own));
         assert!(!is_peer_airdress("operator.local", own));
         assert!(!is_peer_airdress("", own));
+    }
+
+    #[test]
+    fn a_signed_session_reply_carries_its_markdown_as_blocks_beside_the_text() {
+        let by = json!({"delegation": {"session_name": "bob"}, "sig": "s"});
+        let md = "bob: ## Done\n\n- **tests** pass";
+        let b = text_block(md, Some(by.clone()));
+        assert_eq!(b["text"], md, "the signed text is unchanged");
+        assert_eq!(b["by_session"], by);
+        assert_eq!(
+            b["formatted"],
+            json!([
+                {"type": "rich_text", "kind": "heading", "level": 2, "spans": [{"text": "Done"}]},
+                {"type": "rich_text", "kind": "list_item", "spans": [
+                    {"text": "tests", "bold": true}, {"text": " pass"}]},
+            ])
+        );
+        // Plain words stay one text block, signed or not.
+        let plain = text_block("bob: done, @alice", Some(by));
+        assert!(plain.get("formatted").is_none());
+        // Unsigned (no group yet): sent as the device, as before.
+        assert_eq!(
+            text_block("# not a session's", None),
+            json!({"type": "text", "text": "# not a session's"})
+        );
     }
 
     #[test]

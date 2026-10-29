@@ -285,3 +285,5 @@ ctutils
 RUSTSEC
 widenings
 bidi
+cmark
+TASKLISTS

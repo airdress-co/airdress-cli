@@ -1,0 +1,322 @@
+{
+  "cases": [
+    {
+      "description": "No markdown: one text block, no formatted array.",
+      "formatted": null,
+      "name": "plain",
+      "session_name": "bob",
+      "source": "Done, the tests pass.\nNext: the soak, then @alice rolls it.",
+      "text": "bob: Done, the tests pass.\nNext: the soak, then @alice rolls it."
+    },
+    {
+      "description": "Bold, italic and inline code are spans; a mention stays text inside them.",
+      "formatted": [
+        {
+          "kind": "paragraph",
+          "spans": [
+            {
+              "bold": true,
+              "text": "Done."
+            },
+            {
+              "text": " Ask @alice, "
+            },
+            {
+              "italic": true,
+              "text": "then"
+            },
+            {
+              "text": " run "
+            },
+            {
+              "code": true,
+              "text": "just test"
+            },
+            {
+              "text": "."
+            }
+          ],
+          "type": "rich_text"
+        }
+      ],
+      "name": "emphasis-and-mentions",
+      "session_name": "bob",
+      "source": "**Done.** Ask @alice, *then* run `just test`.",
+      "text": "bob: **Done.** Ask @alice, *then* run `just test`."
+    },
+    {
+      "description": "A heading on the first line after the prefix, a numbered list and a task list.",
+      "formatted": [
+        {
+          "kind": "heading",
+          "level": 2,
+          "spans": [
+            {
+              "text": "Options"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "kind": "list_item",
+          "ordinal": 1,
+          "spans": [
+            {
+              "text": "Roll it now"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "kind": "list_item",
+          "ordinal": 2,
+          "spans": [
+            {
+              "text": "Wait for the soak"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "depth": 1,
+          "kind": "list_item",
+          "spans": [
+            {
+              "text": "it ends at noon"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "checked": true,
+          "kind": "list_item",
+          "spans": [
+            {
+              "text": "tests"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "checked": false,
+          "kind": "list_item",
+          "spans": [
+            {
+              "text": "docs"
+            }
+          ],
+          "type": "rich_text"
+        }
+      ],
+      "name": "heading-and-lists",
+      "session_name": "bob",
+      "source": "## Options\n\n1. Roll it now\n2. Wait for the soak\n   - it ends at noon\n\n- [x] tests\n- [ ] docs",
+      "text": "bob: ## Options\n\n1. Roll it now\n2. Wait for the soak\n   - it ends at noon\n\n- [x] tests\n- [ ] docs"
+    },
+    {
+      "description": "A fenced block with a language, and the paragraph before it.",
+      "formatted": [
+        {
+          "kind": "paragraph",
+          "spans": [
+            {
+              "text": "Run this:"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "code": "just test\njust lint",
+          "language": "sh",
+          "type": "code"
+        }
+      ],
+      "name": "code-block",
+      "session_name": "bob",
+      "source": "Run this:\n\n```sh\njust test\njust lint\n```",
+      "text": "bob: Run this:\n\n```sh\njust test\njust lint\n```"
+    },
+    {
+      "description": "A quote, a safe link, an unsafe link shown as text, and a divider.",
+      "formatted": [
+        {
+          "depth": 1,
+          "kind": "quote",
+          "spans": [
+            {
+              "text": "the soak is green"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "kind": "paragraph",
+          "spans": [
+            {
+              "text": "See "
+            },
+            {
+              "href": "https://example.com/rb",
+              "text": "the runbook"
+            },
+            {
+              "text": " or this."
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "kind": "paragraph",
+          "spans": [
+            {
+              "strike": true,
+              "text": "old plan"
+            }
+          ],
+          "type": "rich_text"
+        }
+      ],
+      "name": "quote-link-divider",
+      "session_name": "bob",
+      "source": "> the soak is green\n\nSee [the runbook](https://example.com/rb) or [this](javascript:void(0)).\n\n---\n\n~~old plan~~",
+      "text": "bob: > the soak is green\n\nSee [the runbook](https://example.com/rb) or [this](javascript:void(0)).\n\n---\n\n~~old plan~~"
+    },
+    {
+      "description": "A table is one line per row, the header bold, cells joined by a dot.",
+      "formatted": [
+        {
+          "kind": "paragraph",
+          "spans": [
+            {
+              "bold": true,
+              "text": "lane"
+            },
+            {
+              "text": "  ·  "
+            },
+            {
+              "bold": true,
+              "text": "state"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "kind": "paragraph",
+          "spans": [
+            {
+              "text": "relay"
+            },
+            {
+              "text": "  ·  "
+            },
+            {
+              "bold": true,
+              "text": "green"
+            }
+          ],
+          "type": "rich_text"
+        }
+      ],
+      "name": "table",
+      "session_name": "bob",
+      "source": "| lane | state |\n|---|---|\n| relay | **green** |",
+      "text": "bob: | lane | state |\n|---|---|\n| relay | **green** |"
+    },
+    {
+      "description": "A whole reply: bold, a list with inline code and a mention, and a code block.",
+      "formatted": [
+        {
+          "kind": "paragraph",
+          "spans": [
+            {
+              "bold": true,
+              "text": "Done."
+            },
+            {
+              "text": " Two things:"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "kind": "list_item",
+          "spans": [
+            {
+              "text": "the "
+            },
+            {
+              "italic": true,
+              "text": "tests"
+            },
+            {
+              "text": " pass"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "kind": "list_item",
+          "spans": [
+            {
+              "code": true,
+              "text": "just lint"
+            },
+            {
+              "text": " is clean, @alice"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "code": "just test",
+          "language": "sh",
+          "type": "code"
+        }
+      ],
+      "name": "session-reply",
+      "session_name": "bob",
+      "source": "**Done.** Two things:\n\n- the *tests* pass\n- `just lint` is clean, @alice\n\n```sh\njust test\n```",
+      "text": "bob: **Done.** Two things:\n\n- the *tests* pass\n- `just lint` is clean, @alice\n\n```sh\njust test\n```"
+    },
+    {
+      "description": "A text without the session's prefix is formatted whole.",
+      "formatted": [
+        {
+          "kind": "heading",
+          "level": 1,
+          "spans": [
+            {
+              "text": "Report"
+            }
+          ],
+          "type": "rich_text"
+        },
+        {
+          "kind": "paragraph",
+          "spans": [
+            {
+              "text": "All "
+            },
+            {
+              "italic": true,
+              "text": "three"
+            },
+            {
+              "text": " passed."
+            }
+          ],
+          "type": "rich_text"
+        }
+      ],
+      "name": "no-prefix",
+      "session_name": "bob",
+      "source": "# Report\n\nAll *three* passed.",
+      "text": "# Report\n\nAll *three* passed."
+    }
+  ],
+  "description": "A session's markdown as blocks. The device host sends a signed session reply as one text block whose text is what the session signed; when the text, without the session's `name: ` prefix (`source` here), has more than plain paragraphs, the block also carries `formatted`: rich_text, code and divider blocks in the app's block JSON, with no `source` field (the receiver sets each rich_text block's source to `source`). `formatted: null` means the block carries no formatted array. The same file, byte for byte, is airdress-cli's tests/vectors/markdown_blocks.json and the app's test/features/chat/markdown_blocks_vectors.json; change both or neither."
+}

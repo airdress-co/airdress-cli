@@ -17,6 +17,7 @@
 
 pub mod chat;
 pub mod chat_store;
+pub mod formatted;
 pub mod host;
 pub mod join;
 pub mod reply;

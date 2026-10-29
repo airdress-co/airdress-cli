@@ -126,6 +126,12 @@ It takes the same global flags as `airdress` (`-A`, `--output json`,
 `--ca-file`, …). `airdress agent …` only tells you to run `airdress-agent`.
 Windows has no `airdress-agent`: the device host listens on a Unix socket.
 
+A session's reply is sent as the words it wrote, signed by that session.
+When those words are markdown (a heading, a list, bold, a code block), the
+device host also sends them parsed, so the Airdress app shows them
+formatted; plain sentences are sent as they are. An older app shows the
+markdown as written, still under the session's name.
+
 ## Renewing a certificate
 
 `airdress tls renew` asks the current airdress to renew its TLS
