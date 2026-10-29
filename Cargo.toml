@@ -189,7 +189,6 @@ mls = [
     "dep:airdress-mls",
     "dep:airdress-mls-client",
     "dep:chacha20poly1305",
-    "dep:unicode-segmentation",
 ]
 
 [dependencies]
@@ -254,9 +253,9 @@ airdress-httpsig = { version = "0.2.0", git = "https://github.com/airdress-co/ai
 # Seals the agent device's local chat store (the same AEAD the MLS
 # state is sealed with); only with `mls`.
 chacha20poly1305 = { version = "0.10", optional = true }
-# A quote of a message is cut at a grapheme cluster (the agent device's
-# replies); only with `mls`.
-unicode-segmentation = { version = "1.12", optional = true }
+# A quote of a message is cut at a grapheme cluster: the agent device's
+# replies, and the quoted words a session is shown.
+unicode-segmentation = "1.12"
 airdress-mls = { version = "0.4.0", git = "https://github.com/airdress-co/airdress-mls", rev = "43f0781d541518847bddf358e587c8ea999cf5dd", optional = true }
 # The envelope pump's decisions, the conversation directory and the root
 # pins, ported from the phone (one revision with airdress-mls above, so

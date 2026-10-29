@@ -48,6 +48,7 @@ pub mod peers;
 pub mod plugins;
 pub mod preferences;
 pub mod profile;
+pub mod quote;
 pub mod redact;
 pub mod resources;
 pub mod shell_client;

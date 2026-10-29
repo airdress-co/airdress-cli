@@ -281,6 +281,30 @@ pub fn route(me: &str, mentioned: &[String], live: Option<&[String]>) -> Address
     }
 }
 
+/// Route a reply. A reply to a message the session `answered` wrote is
+/// addressed to that session as if it mentioned it (SPEC-174 FR-32); a
+/// mention in the reply addresses that session too, so a reply to bob
+/// that names `@alice` is for both (D-11). A reply that mentions nobody
+/// is context for every other session, never "for nobody": it is bob's
+/// to answer even when bob has ended.
+pub fn route_reply(
+    me: &str,
+    mentioned: &[String],
+    answered: Option<&str>,
+    live: Option<&[String]>,
+) -> Addressed {
+    let Some(answered) = answered else {
+        return route(me, mentioned, live);
+    };
+    if answered == me {
+        return Addressed::ThisSession;
+    }
+    match route(me, mentioned, live) {
+        Addressed::Nobody => Addressed::Elsewhere,
+        a => a,
+    }
+}
+
 /// Whether `me` should answer an unmatched mention: only the session whose
 /// name sorts first among `here` (the sessions on this device), so a typo
 /// gets one "nobody here is called …", not one per session. With nobody
@@ -512,6 +536,27 @@ mod tests {
         let twins: Vec<String> = vec!["bob".into(), "rob".into()];
         assert_eq!(closest("cob", &twins).as_deref(), Some("bob"));
         assert_eq!(edits("daev", "dave"), 1);
+    }
+
+    #[test]
+    fn a_reply_is_for_the_session_it_answers_and_for_whom_it_mentions() {
+        let live = vec!["alice".to_owned(), "bob".to_owned(), "carol".to_owned()];
+        let at = |me: &str, text: &str, answered: Option<&str>| {
+            route_reply(me, &names(text), answered, Some(&live))
+        };
+        // A reply to bob's message, naming nobody: bob's alone.
+        assert_eq!(at("bob", "yes", Some("bob")), Addressed::ThisSession);
+        assert_eq!(at("alice", "yes", Some("bob")), Addressed::Elsewhere);
+        assert_eq!(at("carol", "yes", Some("bob")), Addressed::Elsewhere);
+        // And @alice besides: both, never carol.
+        assert_eq!(at("bob", "@alice yes", Some("bob")), Addressed::ThisSession);
+        assert_eq!(
+            at("alice", "@alice yes", Some("bob")),
+            Addressed::ThisSession
+        );
+        assert_eq!(at("carol", "@alice yes", Some("bob")), Addressed::Elsewhere);
+        // Not a reply to a session's message: as any message.
+        assert_eq!(at("carol", "yes", None), Addressed::Nobody);
     }
 
     #[test]

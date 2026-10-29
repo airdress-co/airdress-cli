@@ -1278,7 +1278,18 @@ fn chat_tools(tools: &mut Vec<Tool>) {
          sent by this device. Ask the user before writing into a conversation with people \
          in it.",
         schema(
-            vec![conversation, ("text", text("The message.")), airdress_arg()],
+            vec![
+                conversation,
+                ("text", text("The message.")),
+                (
+                    "reply_to",
+                    text(
+                        "Answer this message: a message_id from chat_read or a pushed message. \
+                         The person sees your message as a reply to it.",
+                    ),
+                ),
+                airdress_arg(),
+            ],
             &["conversation_id", "text"],
         ),
         false,

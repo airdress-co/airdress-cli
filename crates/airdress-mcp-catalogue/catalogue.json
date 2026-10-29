@@ -1456,6 +1456,10 @@
             "description": "The conversation, from chat_conversations.",
             "type": "string"
           },
+          "reply_to": {
+            "description": "Answer this message: a message_id from chat_read or a pushed message. The person sees your message as a reply to it.",
+            "type": "string"
+          },
           "text": {
             "description": "The message.",
             "type": "string"

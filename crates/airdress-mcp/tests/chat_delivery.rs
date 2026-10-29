@@ -215,6 +215,18 @@ fn spawn_device_host(socket: &std::path::Path, host: Arc<Mutex<Host>>) {
                             };
                             json!({"ok": true, "messages": msgs, "head": head, "names_here": names_here})
                         }
+                        Some("chat.reply_ref") => {
+                            // The host holds one of bob's messages.
+                            if req["message_id"] == "e-bob-said" {
+                                json!({"ok": true, "reply_to": {
+                                    "ref": "Jk2m0PZpQh6Q1wVf3n8sLg", "from": "a.example",
+                                    "by_session": "bob", "kind": "text", "snippet": "Three options",
+                                }})
+                            } else {
+                                json!({"ok": false, "error": "reply_target_unknown",
+                                       "message": "this machine holds no message with that id"})
+                            }
+                        }
                         Some("chat.send") => {
                             host.lock().unwrap().sent.push(req.clone());
                             json!({"ok": true, "message_id": "local-1"})
@@ -905,4 +917,142 @@ fn with_agent_devices_off_the_tools_say_so_and_never_ask_the_host() {
         "chat_send reached the host"
     );
     server.stop();
+}
+
+/// A reply to a message a session wrote is that session's (SPEC-174
+/// FR-32); naming another session as well makes it both of theirs (D-11).
+/// The push and chat_read say what it answers, the words stay the
+/// person's, and chat_send answers a particular message.
+#[test]
+fn a_reply_wakes_the_session_it_answers_and_whom_it_mentions() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("state");
+    let port = spawn_http();
+    let operator_host = format!("127.0.0.1:{port}");
+    profile_store(home.path(), port, &operator_host);
+    let host = Arc::new(Mutex::new(Host::default()));
+    spawn_device_host(
+        &airdress::agent_bus::socket::socket_path(
+            &airdress::agent_bus::socket::device_dir(&state, &operator_host),
+            None,
+        ),
+        Arc::clone(&host),
+    );
+    let start = |name: &str| {
+        Server::start(
+            home.path(),
+            &state,
+            &operator_host,
+            &["--session-name", name],
+        )
+    };
+    let mut alice = start("alice");
+    let mut bob = start("bob");
+    let mut carol = start("carol");
+    std::thread::sleep(Duration::from_millis(600));
+    let reply_to_bob = json!({"message_id": "e-bob-said", "from": "a.example",
+                              "by_session": "bob", "kind": "text",
+                              "text": "Three options: roll now, wait, or skip", "resolved": true});
+    {
+        let mut h = host.lock().unwrap();
+        let mut plain = message(1, "e-r1", "c-mine", false, "the second one");
+        plain["reply_to"] = reply_to_bob.clone();
+        let mut both = message(2, "e-r2", "c-mine", false, "@alice and you, agreed?");
+        both["reply_to"] = reply_to_bob.clone();
+        // The sender claims bob wrote it, but the host did not find it:
+        // that is nobody's by reply.
+        let mut claimed = message(3, "e-r3", "c-mine", false, "and this");
+        claimed["reply_to"] = json!({"message_id": null, "from": "a.example",
+                                     "by_session": "bob", "kind": "text",
+                                     "text": "what the sender says", "resolved": false});
+        h.messages.extend([plain, both, claimed]);
+    }
+    let is = |id: &'static str| {
+        move |n: &Value| {
+            n["method"] == "notifications/claude/channel" && n["params"]["meta"]["message_id"] == id
+        }
+    };
+    let at_bob = bob.wait_for("the reply, at bob", is("e-r1"));
+    let meta = &at_bob["params"]["meta"];
+    assert_eq!(meta["addressed"], "this_session", "{at_bob}");
+    assert_eq!(meta["in_reply_to"], "e-bob-said");
+    assert_eq!(meta["quoted_from"], "bob@a.example");
+    assert_eq!(
+        meta["quoted_text"],
+        "Three options: roll now, wait, or skip"
+    );
+    assert_eq!(meta["quoted_resolved"], "yes");
+    assert_eq!(at_bob["params"]["content"], "the second one");
+    for k in meta.as_object().unwrap().keys() {
+        assert!(
+            k.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
+            "{k}"
+        );
+    }
+    for s in [&mut alice, &mut carol] {
+        let n = s.wait_for("the reply, elsewhere", is("e-r1"));
+        assert_eq!(n["params"]["meta"]["addressed"], "elsewhere", "{n}");
+    }
+    // A reply to bob that names @alice wakes both, and not carol.
+    for s in [&mut bob, &mut alice] {
+        let n = s.wait_for("the reply naming alice", is("e-r2"));
+        assert_eq!(n["params"]["meta"]["addressed"], "this_session", "{n}");
+    }
+    let n = carol.wait_for("the reply naming alice, at carol", is("e-r2"));
+    assert_eq!(n["params"]["meta"]["addressed"], "elsewhere", "{n}");
+    // An unresolved claim routes as a plain message.
+    let n = carol.wait_for("the claimed reply, at carol", is("e-r3"));
+    assert_eq!(n["params"]["meta"]["addressed"], "none", "{n}");
+    assert_eq!(n["params"]["meta"]["quoted_resolved"], "no");
+    assert!(n["params"]["meta"].get("in_reply_to").is_none());
+
+    // chat_read gives the same facts.
+    let read = carol.tool(3, "chat_read", json!({"conversation_id": "c-mine"}));
+    let msgs = read["result"]["structuredContent"]["messages"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(msgs[0]["reply_to"]["message_id"], "e-bob-said", "{read}");
+    assert_eq!(
+        msgs[0]["reply_to"]["text"],
+        "Three options: roll now, wait, or skip"
+    );
+    assert_eq!(msgs[0]["reply_to"]["resolved"], true);
+    assert_eq!(msgs[0]["addressed_to_this_session"], false);
+    let read = bob.tool(3, "chat_read", json!({"conversation_id": "c-mine"}));
+    assert_eq!(
+        read["result"]["structuredContent"]["messages"][0]["addressed_to_this_session"],
+        true
+    );
+
+    // bob answers a particular message: the host's reply_to goes with it.
+    let sent = bob.tool(
+        4,
+        "chat_send",
+        json!({"conversation_id": "c-mine", "text": "Option 2, then.", "reply_to": "e-bob-said"}),
+    );
+    assert_eq!(sent["result"]["isError"], false, "{sent}");
+    assert_eq!(
+        sent["result"]["structuredContent"]["reply_to"],
+        "e-bob-said"
+    );
+    let s = host.lock().unwrap().sent[0].clone();
+    assert_eq!(s["reply_to_message_id"], "e-bob-said");
+    assert_eq!(s["reply_to"]["snippet"], "Three options");
+    assert_eq!(s["text"], "bob: Option 2, then.");
+    // An id the host does not hold is refused, and nothing is sent.
+    let refused = bob.tool(
+        5,
+        "chat_send",
+        json!({"conversation_id": "c-mine", "text": "x", "reply_to": "no-such"}),
+    );
+    assert_eq!(refused["result"]["isError"], true, "{refused}");
+    assert!(
+        refused.to_string().contains("holds no message"),
+        "{refused}"
+    );
+    assert_eq!(host.lock().unwrap().sent.len(), 1);
+    alice.stop();
+    bob.stop();
+    carol.stop();
 }

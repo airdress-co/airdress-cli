@@ -16,9 +16,8 @@ use serde_json::{json, Map, Value};
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use super::chat_store::{ChatStore, Message, Reply};
-
-/// Longest snippet, in grapheme clusters, the ellipsis included.
-pub const SNIPPET_MAX: usize = 140;
+use crate::quote::is_bidi_control;
+pub use crate::quote::{snippet, SNIPPET_MAX};
 
 /// The kinds a quote can name.
 pub const KINDS: &[&str] = &["text", "code", "image", "audio", "place", "live", "other"];
@@ -34,25 +33,6 @@ pub fn mint_ref() -> String {
 /// decode to 16 bytes. Anything else is ignored.
 pub fn is_ref(s: &str) -> bool {
     s.len() == 22 && URL_SAFE_NO_PAD.decode(s).is_ok_and(|b| b.len() == 16)
-}
-
-fn is_bidi_control(c: char) -> bool {
-    matches!(c, '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
-}
-
-/// The snippet of `text`: bidi controls removed, whitespace runs one
-/// space, at most [`SNIPPET_MAX`] grapheme clusters, cut at a cluster
-/// boundary with `…`.
-pub fn snippet(text: &str) -> String {
-    let clean: String = text.chars().filter(|c| !is_bidi_control(*c)).collect();
-    let collapsed = clean.split_whitespace().collect::<Vec<_>>().join(" ");
-    let clusters: Vec<&str> = collapsed.graphemes(true).collect();
-    if clusters.len() <= SNIPPET_MAX {
-        return collapsed;
-    }
-    let mut out: String = clusters[..SNIPPET_MAX - 1].concat();
-    out.push('…');
-    out
 }
 
 /// What a block array holds, for a quote: the first block that is not

@@ -135,12 +135,18 @@ pub async fn call(
                     }
                     let mentioned =
                         names::local_names(m["text"].as_str().unwrap_or_default(), fqdn);
+                    let answered = answered_session(m);
                     let live = if mentioned.is_empty() || mentioned.contains(&me) {
                         None
                     } else {
                         names_live::get(session, fqdn, &mentioned).await
                     };
-                    let a = names::route(&me, &mentioned, live.as_ref().map(|l| &l.others[..]));
+                    let a = names::route_reply(
+                        &me,
+                        &mentioned,
+                        answered.as_deref(),
+                        live.as_ref().map(|l| &l.others[..]),
+                    );
                     m["mentions"] = json!(mentioned);
                     m["addressed_to_this_session"] = json!(a != Addressed::Elsewhere);
                 }
@@ -164,19 +170,48 @@ pub async fn call(
             let text = signed_text(&name, text);
             let text = text.as_str();
             let mut req = json!({"op": "chat.send", "conversation_id": conversation, "text": text});
+            // A reply: the host, which holds the original, says what its
+            // reply_to is; this session signs that, and the host sends it
+            // only if it is still what it builds (SPEC-174 design §7.3).
+            let reply_id = args["reply_to"].as_str().filter(|id| !id.is_empty());
+            let reply_to = match reply_id {
+                Some(id) => {
+                    let v = ask(
+                        session,
+                        fqdn,
+                        json!({"op": "chat.reply_ref", "conversation_id": conversation,
+                               "message_id": id}),
+                    )
+                    .await?;
+                    let wire = v["reply_to"].clone();
+                    if !wire.is_object() {
+                        bail!("the device host gave no reply_to for {id}; it may predate replies");
+                    }
+                    req["reply_to_message_id"] = json!(id);
+                    req["reply_to"] = wire.clone();
+                    Some(wire)
+                }
+                None => None,
+            };
             // Signed by this session when the host has delegated to it and
             // the conversation has a group (design §11.6); otherwise the
             // phone shows the device, and the prefix stays plain text.
-            if let Some(by) = by_session(session, fqdn, conversation, &name, text, None).await {
+            if let Some(by) =
+                by_session(session, fqdn, conversation, &name, text, reply_to.as_ref()).await
+            {
                 req["by_session"] = by;
             }
             let v = ask(session, fqdn, req).await?;
-            Ok(json!({
+            let mut out = json!({
                 "message_id": v["message_id"],
                 "conversation_id": conversation,
                 "sent": true,
                 "text": text,
-            }))
+            });
+            if let Some(id) = reply_id {
+                out["reply_to"] = json!(id);
+            }
+            Ok(out)
         }
         other => bail!("no chat tool named {other}"),
     }
@@ -232,6 +267,17 @@ pub fn signed_text(name: &str, text: &str) -> String {
     }
 }
 
+/// The session on this machine whose message `m` answers: only when the
+/// device host resolved the reply to a message one of its sessions wrote,
+/// never on the sender's word.
+pub fn answered_session(m: &Value) -> Option<String> {
+    let r = &m["reply_to"];
+    if r["resolved"] != json!(true) {
+        return None;
+    }
+    r["by_session"].as_str().map(str::to_owned)
+}
+
 /// The channel notification for one chat message (FR-34): the words as
 /// written, and who, where and which lane in the meta. `addressed` is
 /// `you` when the message mentions this session by name, else absent.
@@ -249,6 +295,29 @@ pub fn notification(m: &Value) -> Value {
     put("from", s("from"));
     put("message_id", s("message_id"));
     put("lane", s("lane"));
+    // A reply says what it answers (SPEC-174 FR-31); the content stays the
+    // person's words, unaltered.
+    let r = &m["reply_to"];
+    if r.is_object() {
+        let resolved = r["resolved"] == json!(true);
+        if resolved {
+            put("in_reply_to", r["message_id"].as_str().map(str::to_owned));
+        }
+        let from = r["from"].as_str().unwrap_or_default();
+        put(
+            "quoted_from",
+            Some(match r["by_session"].as_str() {
+                Some(name) if !from.is_empty() => format!("{name}@{from}"),
+                Some(name) => name.to_owned(),
+                None => from.to_owned(),
+            }),
+        );
+        put("quoted_text", r["text"].as_str().map(crate::quote::snippet));
+        put(
+            "quoted_resolved",
+            Some(if resolved { "yes" } else { "no" }.into()),
+        );
+    }
     json!({
         "jsonrpc": "2.0",
         "method": channel_push::METHOD,
@@ -353,6 +422,9 @@ pub async fn start(session: Arc<Session>) {
                     }
                     let mentioned =
                         names::local_names(m["text"].as_str().unwrap_or_default(), &fqdn);
+                    // A reply to a message one of this machine's sessions
+                    // wrote is for that session (FR-32, D-11).
+                    let answered = answered_session(m);
                     let live = if mentioned.is_empty() || mentioned.contains(&me) {
                         None
                     } else {
@@ -362,7 +434,12 @@ pub async fn start(session: Arc<Session>) {
                     // Every message reaches every session (D-14): one for
                     // another session, or for nobody, arrives as context,
                     // and the instructions say to act only when addressed.
-                    let a = names::route(&me, &mentioned, live.as_ref().map(|l| &l.others[..]));
+                    let a = names::route_reply(
+                        &me,
+                        &mentioned,
+                        answered.as_deref(),
+                        live.as_ref().map(|l| &l.others[..]),
+                    );
                     let mut n = notification(m);
                     place(&mut n, origin::of_chat(m, &fqdn, &widenings));
                     let meta = &mut n["params"]["meta"];
@@ -424,5 +501,49 @@ mod tests {
             assert!(meta_key_ok(k));
         }
         assert_eq!(meta["lane"], "assigned");
+        assert!(meta.get("quoted_text").is_none(), "not a reply");
+    }
+
+    #[test]
+    fn a_reply_says_what_it_answers_in_the_meta_and_leaves_the_words() {
+        let long = "word ".repeat(100);
+        let n = notification(&json!({
+            "conversation_id": "c1", "from": "a.example", "message_id": "m2",
+            "lane": "assigned", "text": "yes, that one",
+            "reply_to": {"message_id": "m1", "from": "a.example", "by_session": "bob",
+                         "kind": "text", "text": long, "resolved": true},
+        }));
+        assert_eq!(n["params"]["content"], "yes, that one");
+        let meta = n["params"]["meta"].as_object().unwrap();
+        assert_eq!(meta["in_reply_to"], "m1");
+        assert_eq!(meta["quoted_from"], "bob@a.example");
+        assert_eq!(meta["quoted_resolved"], "yes");
+        let q = meta["quoted_text"].as_str().unwrap();
+        assert!(
+            crate::quote::clusters(q) <= crate::quote::SNIPPET_MAX,
+            "{q}"
+        );
+        for k in meta.keys() {
+            assert!(meta_key_ok(k), "{k}");
+        }
+        let unresolved = notification(&json!({
+            "text": "hm", "reply_to": {"message_id": null, "from": "b.example",
+                                       "kind": "text", "text": "said", "resolved": false},
+        }));
+        let meta = &unresolved["params"]["meta"];
+        assert!(meta.get("in_reply_to").is_none());
+        assert_eq!(meta["quoted_from"], "b.example");
+        assert_eq!(meta["quoted_resolved"], "no");
+        assert_eq!(meta["quoted_text"], "said");
+        // Only the host's resolution makes it a session's.
+        assert_eq!(
+            answered_session(&json!({"reply_to": {"by_session": "bob", "resolved": false}})),
+            None
+        );
+        assert_eq!(
+            answered_session(&json!({"reply_to": {"by_session": "bob", "resolved": true}}))
+                .as_deref(),
+            Some("bob")
+        );
     }
 }
