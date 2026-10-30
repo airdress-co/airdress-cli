@@ -168,8 +168,8 @@ dependencies = [
 
 [[package]]
 name = "airdress-mls"
-version = "0.6.0"
-source = "git+https://github.com/airdress-co/airdress-mls?tag=v0.6.0#10ea352e8ab6bae17ed7964da2c659c43d1809a8"
+version = "0.6.1"
+source = "git+https://github.com/airdress-co/airdress-mls?tag=v0.6.1#3712b4aff6cb310a8ba853d1c75ef5759fc89ba7"
 dependencies = [
  "base64",
  "chacha20 0.10.2",
@@ -185,8 +185,8 @@ dependencies = [
 
 [[package]]
 name = "airdress-mls-client"
-version = "0.6.0"
-source = "git+https://github.com/airdress-co/airdress-mls?tag=v0.6.0#10ea352e8ab6bae17ed7964da2c659c43d1809a8"
+version = "0.6.1"
+source = "git+https://github.com/airdress-co/airdress-mls?tag=v0.6.1#3712b4aff6cb310a8ba853d1c75ef5759fc89ba7"
 dependencies = [
  "airdress-mls",
  "base64",
@@ -3919,7 +3919,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.2",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

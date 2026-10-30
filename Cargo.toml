@@ -262,11 +262,11 @@ unicode-segmentation = "1.12"
 # parser only; its HTML renderer and command-line tool are off. Only with
 # `mls`, like everything the agent device carries.
 pulldown-cmark = { version = "0.13", default-features = false, optional = true }
-airdress-mls = { version = "0.6.0", git = "https://github.com/airdress-co/airdress-mls", tag = "v0.6.0", optional = true }
+airdress-mls = { version = "0.6.1", git = "https://github.com/airdress-co/airdress-mls", tag = "v0.6.1", optional = true }
 # The envelope pump's decisions, the conversation directory and the root
 # pins, ported from the phone (one revision with airdress-mls above, so
 # both name one engine type).
-airdress-mls-client = { version = "0.6.0", git = "https://github.com/airdress-co/airdress-mls", tag = "v0.6.0", optional = true }
+airdress-mls-client = { version = "0.6.1", git = "https://github.com/airdress-co/airdress-mls", tag = "v0.6.1", optional = true }
 http = "1"
 
 # Shells (the client half): the end-to-end protocol the host, the app and
@@ -320,8 +320,8 @@ keyring = { version = "3.6", default-features = false, features = [
 tempfile = "3"
 # The other MLS member in tests/agent_chat.rs (the operator's agent), with
 # the shared helper that signs a v2 delegation. Same revision as above.
-airdress-mls = { version = "0.6.0", git = "https://github.com/airdress-co/airdress-mls", tag = "v0.6.0", features = ["test-support"] }
-airdress-mls-client = { version = "0.6.0", git = "https://github.com/airdress-co/airdress-mls", tag = "v0.6.0" }
+airdress-mls = { version = "0.6.1", git = "https://github.com/airdress-co/airdress-mls", tag = "v0.6.1", features = ["test-support"] }
+airdress-mls-client = { version = "0.6.1", git = "https://github.com/airdress-co/airdress-mls", tag = "v0.6.1" }
 # Verifies a CLI-signed request exactly as the operator does: same crate,
 # same exact pin as airdress-httpsig and airdress-operator.
 httpsig-hyper = "=0.0.26"
