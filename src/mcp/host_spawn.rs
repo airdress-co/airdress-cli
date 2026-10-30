@@ -133,10 +133,34 @@ pub async fn ensure(session: &Arc<Session>, fqdn: &str) {
 }
 
 /// [`ensure`], now and every few seconds, for as long as the session runs.
+///
+/// First it brings the plugin's own agent up to the pin (SPEC-166 I.6): a
+/// plugin update used to leave the machine's older agent in place, because
+/// the pinned one was installed only by a join, and only where there was
+/// none. A host already running keeps its binary; the next one started,
+/// when its session ends, is the pinned one.
 pub async fn watch(session: Arc<Session>, fqdn: String) {
+    upgrade_agent(&session).await;
     loop {
         ensure(&session, &fqdn).await;
         tokio::time::sleep(WATCH_EVERY).await;
+    }
+}
+
+/// Install the pinned agent into the plugin's data directory when the copy
+/// there is missing or not the pinned one. Without the plugin's pins there
+/// is nothing to compare with, and a failure leaves whatever is installed.
+async fn upgrade_agent(session: &Arc<Session>) {
+    if std::env::var_os(agent_install::PINS_ENV).is_none()
+        || std::env::var_os("AIRDRESS_MCP_NO_HOST_SPAWN").is_some()
+    {
+        return;
+    }
+    let Ok(state) = crate::mcp::bus::state_dir_of(session) else {
+        return;
+    };
+    if let Err(e) = agent_install::ensure(&state).await {
+        tracing::warn!(error = %format!("{e:#}"), "could not bring airdress-agent up to the pin");
     }
 }
 

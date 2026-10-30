@@ -193,6 +193,40 @@ mod tests {
         assert_eq!(ensure_from(dir.path(), &pins).await.unwrap(), path);
     }
 
+    /// One request answered with `body`; returns the origin to pin.
+    fn serve_once(body: &'static [u8]) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let n = s.read(&mut buf).expect("the request");
+                assert!(n > 0, "an empty request");
+                write!(
+                    s,
+                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    body.len()
+                )
+                .expect("the head");
+                s.write_all(body).expect("the body");
+            }
+        });
+        format!("http://127.0.0.1:{port}/")
+    }
+
+    #[tokio::test]
+    async fn an_older_installed_agent_is_replaced_by_the_pinned_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = installed_path(dir.path());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"#!/bin/sh\necho old agent\n").unwrap();
+        let new: &'static [u8] = b"#!/bin/sh\necho pinned agent\n";
+        let pins = pins_with(dir.path(), &sha256_hex(new), &serve_once(new));
+        assert_eq!(ensure_from(dir.path(), &pins).await.unwrap(), path);
+        assert_eq!(std::fs::read(&path).unwrap(), new);
+    }
+
     #[tokio::test]
     async fn a_download_whose_digest_is_not_the_pin_is_never_installed() {
         let dir = tempfile::tempdir().unwrap();
