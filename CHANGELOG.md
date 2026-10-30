@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.26](https://github.com/airdress-co/airdress-cli/compare/v0.1.25...v0.1.26) - 2026-10-30
+
+### Fixed
+
+- *(agent)* Airdress-mls v0.6.1, a Welcome for a missing key package asks to rejoin
+
+### Other
+
+- Update Cargo.lock dependencies
+- THIRD-PARTY.md for airdress-mls 0.6.1
+
 ## [0.1.25](https://github.com/airdress-co/airdress-cli/compare/v0.1.24...v0.1.25) - 2026-10-30
 
 ### Fixed
