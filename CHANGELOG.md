@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.24](https://github.com/airdress-co/airdress-cli/compare/v0.1.23...v0.1.24) - 2026-10-30
+
+### Fixed
+
+- *(mcp)* A plugin update brings its pinned airdress-agent
+
 ## [0.1.23](https://github.com/airdress-co/airdress-cli/compare/v0.1.22...v0.1.23) - 2026-10-29
 
 ### Added
