@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.25](https://github.com/airdress-co/airdress-cli/compare/v0.1.24...v0.1.25) - 2026-10-30
+
+### Fixed
+
+- *(agent)* A starting host retires its published key packages first
+
 ## [0.1.24](https://github.com/airdress-co/airdress-cli/compare/v0.1.23...v0.1.24) - 2026-10-30
 
 ### Fixed
