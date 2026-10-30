@@ -52,6 +52,11 @@ use crate::redact::Redacted;
 pub const OPERATOR_LANE_TARGET: &str = "operator.local";
 /// Key packages kept published, so a phone can add this device.
 const KEY_PACKAGES: usize = 8;
+
+/// How many of its stored key packages a host offers again when it starts
+/// (SPEC-166 166-I.7). The operator holds at most 64 per pool, which phones
+/// share.
+const REPUBLISH_MAX: usize = 2 * KEY_PACKAGES;
 /// Stream reconnect bounds.
 const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(60);
@@ -166,6 +171,34 @@ impl Credentials {
             root_public,
         })
     }
+}
+
+/// `POST /v1/chat/key-packages` with `packages`.
+async fn post_key_packages(api: &Api, packages: &[Vec<u8>]) -> Result<()> {
+    let list: Vec<String> = packages.iter().map(|k| STANDARD.encode(k)).collect();
+    api.request(
+        Method::POST,
+        "/v1/chat/key-packages",
+        Some(&json!({"key_packages": list})),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Retire this device's unconsumed packages on the operator, then publish
+/// `stored` (what the engine still holds) and `fresh`. A refused retire is
+/// said and the publish still happens: an operator without the route keeps
+/// what it had, which is no worse than before.
+async fn retire_and_publish(api: &Api, stored: Vec<Vec<u8>>, fresh: Vec<Vec<u8>>) -> Result<()> {
+    api.request(Method::DELETE, "/v1/chat/key-packages", None)
+        .await
+        .log_warn("agent chat: retiring this device's published key packages");
+    let mut all = stored;
+    all.extend(fresh);
+    if all.is_empty() {
+        return Ok(());
+    }
+    post_key_packages(api, &all).await
 }
 
 /// The operator's chat routes, as this device's bearer reaches them.
@@ -585,14 +618,38 @@ impl Chat {
             let client = guard.as_mut().context("chat is not open")?;
             client.key_packages(KEY_PACKAGES).map_err(|e| anyhow!(e))?
         };
-        let list: Vec<String> = packages.iter().map(|k| STANDARD.encode(k)).collect();
-        api.request(
-            Method::POST,
-            "/v1/chat/key-packages",
-            Some(&json!({"key_packages": list})),
-        )
-        .await?;
-        Ok(())
+        post_key_packages(api, &packages).await
+    }
+
+    /// What a host publishes when it starts: the operator's pool for this
+    /// device is replaced by what this device's engine can open
+    /// (SPEC-166 166-I.7).
+    ///
+    /// The pool serves a device's packages oldest first, and a package
+    /// whose private half this engine does not hold yields a Welcome that
+    /// can never be joined, so every conversation assigned next was lost
+    /// while one such package was left (measured 2026-10-30: "cannot join
+    /// from this Welcome: key package not found"). The phone retires its
+    /// own before it republishes (SPEC-061 061-KP.1); the host never did.
+    async fn republish_key_packages(&self, api: &Api) -> Result<()> {
+        let (stored, fresh) = {
+            let mut guard = self.client.lock().await;
+            let client = guard.as_mut().context("chat is not open")?;
+            let mut stored = client
+                .engine()
+                .stored_key_packages()
+                .map_err(|e| anyhow!(e))?;
+            stored.truncate(REPUBLISH_MAX);
+            let fresh = if stored.len() < KEY_PACKAGES {
+                client
+                    .key_packages(KEY_PACKAGES - stored.len())
+                    .map_err(|e| anyhow!(e))?
+            } else {
+                Vec::new()
+            };
+            (stored, fresh)
+        };
+        retire_and_publish(api, stored, fresh).await
     }
 
     /// One envelope from the stream: process, keep, acknowledge.
@@ -768,7 +825,7 @@ impl Chat {
             .await
             .log_warn("agent chat: refreshing conversations");
         if !*published {
-            self.publish_key_packages(&api).await?;
+            self.republish_key_packages(&api).await?;
             *published = true;
         }
         let mut resp = api
@@ -1233,6 +1290,75 @@ fn text_block(text: &str, by_session: Option<Value>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Answers each request with `200 {}` and records its request line and
+    /// body, in order.
+    fn recording_operator(
+        requests: usize,
+    ) -> (String, std::sync::mpsc::Receiver<(String, String)>) {
+        use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for _ in 0..requests {
+                let (mut s, _) = listener.accept().expect("a request");
+                let mut r = BufReader::new(s.try_clone().unwrap());
+                let mut line = String::new();
+                r.read_line(&mut line).unwrap();
+                let mut len = 0usize;
+                loop {
+                    let mut h = String::new();
+                    r.read_line(&mut h).unwrap();
+                    if h == "\r\n" {
+                        break;
+                    }
+                    if let Some(v) = h.to_ascii_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap();
+                    }
+                }
+                let mut body = vec![0u8; len];
+                r.read_exact(&mut body).unwrap();
+                tx.send((line.trim().to_owned(), String::from_utf8(body).unwrap()))
+                    .unwrap();
+                s.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}")
+                    .unwrap();
+            }
+        });
+        (base, rx)
+    }
+
+    #[tokio::test]
+    async fn a_starting_host_retires_its_published_packages_before_offering_what_it_holds() {
+        let (base, rx) = recording_operator(2);
+        let api = Api {
+            base,
+            token: Redacted::new("t".to_owned()),
+            http: crate::http::client().unwrap(),
+        };
+        let stored = vec![b"held-1".to_vec(), b"held-2".to_vec()];
+        let fresh = vec![b"new-1".to_vec()];
+        retire_and_publish(&api, stored, fresh).await.unwrap();
+        let (first, _) = rx.recv().unwrap();
+        assert_eq!(first, "DELETE /v1/chat/key-packages HTTP/1.1");
+        let (second, body) = rx.recv().unwrap();
+        assert_eq!(second, "POST /v1/chat/key-packages HTTP/1.1");
+        let v: Value = serde_json::from_str(&body).unwrap();
+        let sent: Vec<&str> = v["key_packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| k.as_str().unwrap())
+            .collect();
+        assert_eq!(
+            sent,
+            [
+                STANDARD.encode(b"held-1"),
+                STANDARD.encode(b"held-2"),
+                STANDARD.encode(b"new-1")
+            ]
+        );
+    }
 
     #[test]
     fn a_name_is_held_by_one_session_and_lapses_after_its_last_wait() {
