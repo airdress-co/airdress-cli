@@ -10,7 +10,7 @@ reused for another meaning; a new kind of failure gets a new number.
 | `0` | ok | The command did what it was asked. | Includes `airdress update --check` when an update is available (see below). |
 | `1` | internal | Unexpected: a bug, an answer this CLI could not read, a local file it could not read or write, a `5xx` from the server itself. | `500`, a malformed body, a disk error. |
 | `2` | usage | The command line is wrong. clap's own code, kept. | Unknown subcommand or flag, a missing argument, a missing signing key (`signer_unavailable`). |
-| `3` | refused | The operator or hub refused the request, or a person declined at a prompt. | `403`, `404`, `422`, `429`, a dry run's refusal, `capability_not_granted`, `confirmation_declined`. |
+| `3` | refused | The operator or hub refused the request, a person declined at a prompt, or the CLI refused to act on a binary a package manager owns. | `403`, `404`, `422`, `429`, a dry run's refusal, `capability_not_granted`, `confirmation_declined`, `managed_by_package_manager`. |
 | `4` | auth | Authentication is needed or has expired. | No profile, no sign-in, a refresh the hub refused, `401`, `machine_authorization_expired`. |
 | `5` | network | The other end could not be reached or did not answer in time. | Connection refused, DNS failure, timeout, `408`, `502`, `503`, `504`. |
 | `6` | conflict | The request lost a race with another writer. | `409`, `412`, `source_base_stale`, `epoch_conflict`, `root_key_mismatch`. |
@@ -38,7 +38,7 @@ use, plus the operator's own fields:
 
 | Field | Always | Meaning |
 |-------|--------|---------|
-| `code` | yes | A stable snake-case identifier: the operator's own code verbatim (`epoch_conflict`, `publication_blocked`), or one of this CLI's (`internal`, `usage`, `auth_required`, `not_signed_in`, `sign_in_expired`, `profile_not_found`, `unreachable`, `timeout`, `confirmation_required`, `http_<status>`). A script decides on `code` and the exit status, never on `message`. |
+| `code` | yes | A stable snake-case identifier: the operator's own code verbatim (`epoch_conflict`, `publication_blocked`), or one of this CLI's (`internal`, `usage`, `auth_required`, `not_signed_in`, `sign_in_expired`, `profile_not_found`, `unreachable`, `timeout`, `confirmation_required`, `managed_by_package_manager`, `http_<status>`). A script decides on `code` and the exit status, never on `message`. |
 | `message` | yes | For a person. May change between releases. |
 | `hint` | no | What to do about it. |
 | `status` | no | The HTTP status the operator or hub answered, when one did. |
@@ -55,6 +55,20 @@ and answering it is success; the answer is in the output (`Update
 available: a -> b`, or `"update_available": true` under `--output json`).
 A non-zero exit from `--check` means the check itself failed, which is the
 case a script most needs to notice.
+
+## `airdress update` on a package install
+
+When `airdress` was installed from the apt or dnf repository, or from a
+`.deb` or `.rpm`, the package manager owns the binary, and `airdress
+update` leaves it alone: it exits `3` with `managed_by_package_manager`
+before downloading anything, and the hint is the command that updates it
+(`sudo apt update && sudo apt install --only-upgrade airdress`, or `sudo
+dnf upgrade airdress`). Under `--output json` the failure object carries
+`"managed_by": "apt"` or `"dnf"`.
+
+`airdress update --check` still answers there, and adds the same
+`managed_by` field to its JSON. The field is absent for an install no
+package manager owns.
 
 ## Exceptions
 

@@ -292,3 +292,5 @@ gpgkey
 libyaml
 lintian
 vercmp
+dpkg
+queryformat
