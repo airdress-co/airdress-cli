@@ -151,7 +151,7 @@ wildcard_imports = "allow"                   # 3
 
 [package]
 name = "airdress"
-version = "0.1.26"
+version = "0.1.27"
 description = "The Airdress CLI: your airdress from the terminal"
 edition.workspace = true
 rust-version.workspace = true
@@ -193,7 +193,7 @@ mls = [
 ]
 
 [dependencies]
-airdress-mcp-catalogue = { version = "0.1.26", path = "crates/airdress-mcp-catalogue" }
+airdress-mcp-catalogue = { version = "0.1.27", path = "crates/airdress-mcp-catalogue" }
 airdress-place = { version = "0.1.20", path = "crates/airdress-place" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
@@ -272,7 +272,7 @@ http = "1"
 # Shells (the client half): the end-to-end protocol the host, the app and
 # the editor share, and the termios and window-size calls a raw terminal
 # needs.
-airdress-shell-proto = { version = "0.1.26", path = "crates/airdress-shell-proto" }
+airdress-shell-proto = { version = "0.1.27", path = "crates/airdress-shell-proto" }
 libc = "0.2"
 
 # ── Secret Service, on every Linux build ─────────────────────────────────────
@@ -307,7 +307,7 @@ libc = "0.2"
 # file modes. On Windows those subcommands say they are unsupported; the
 # shell client works everywhere.
 [target.'cfg(unix)'.dependencies]
-airdress-shell-host = { version = "0.1.26", path = "crates/airdress-shell-host" }
+airdress-shell-host = { version = "0.1.27", path = "crates/airdress-shell-host" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6", default-features = false, features = [
@@ -329,7 +329,7 @@ http-body-util = "0.1"
 bytes = "1"
 # The reference host, to drive the shell client end to end against a mock
 # operator.
-airdress-shell-proto = { version = "0.1.26", path = "crates/airdress-shell-proto", features = ["conformance"] }
+airdress-shell-proto = { version = "0.1.27", path = "crates/airdress-shell-proto", features = ["conformance"] }
 
 # Smaller test and dev artifacts: line tables keep panics and backtraces
 # readable; dependencies carry no debug info. A debugger session sets
@@ -337,7 +337,7 @@ airdress-shell-proto = { version = "0.1.26", path = "crates/airdress-shell-proto
 # The real host and its mock operator, to drive this CLI's own session code
 # against it (tests/shell_interop.rs). Unix only, like the host.
 [target.'cfg(unix)'.dev-dependencies]
-airdress-shell-host = { version = "0.1.26", path = "crates/airdress-shell-host", features = ["testkit"] }
+airdress-shell-host = { version = "0.1.27", path = "crates/airdress-shell-host", features = ["testkit"] }
 
 [profile.dev]
 debug = "line-tables-only"

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.27](https://github.com/airdress-co/airdress-cli/compare/v0.1.26...v0.1.27) - 2026-10-31
+
+### Added
+
+- *(release)* Rpm packages beside the debs
+- *(update)* Leave a package manager's binary to the package manager
+
+### Build and release
+
+- *(release)* Ask airdress-ops to publish a stable version to the package repositories
+
 ## [0.1.26](https://github.com/airdress-co/airdress-cli/compare/v0.1.25...v0.1.26) - 2026-10-30
 
 ### Fixed
