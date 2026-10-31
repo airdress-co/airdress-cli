@@ -576,7 +576,7 @@ jobs:
         run: |
           if [ "$TOKEN_OUTCOME" != success ] || [ -z "$GH_TOKEN" ] || ! gh workflow run package-repos.yml --repo airdress-co/airdress-ops --ref main \
                -f product=airdress-cli -f version="$TAG" -f mode=publish; then
-            echo "::error::Could not dispatch package-repos.yml in airdress-ops for $TAG. The release itself is published. The daily scheduled run in airdress-ops publishes any version the repositories are behind on within a day; to publish now, run: gh workflow run package-repos.yml --repo airdress-co/airdress-ops --ref main -f product=airdress-cli -f version=$TAG"
+            echo "::error::Could not dispatch package-repos.yml in airdress-ops for $TAG. The release itself is published, but it is not in the apt and dnf repositories until airdress-ops publishes it (nothing does so on a schedule). Run: gh workflow run package-repos.yml --repo airdress-co/airdress-ops --ref main -f product=airdress-cli -f version=$TAG"
             exit 1
           fi
           echo "Dispatched package-repos.yml in airdress-ops for $TAG."
