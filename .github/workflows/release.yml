@@ -547,3 +547,31 @@ jobs:
           files: artifacts/*
           generate_release_notes: true
 
+      # A stable version goes into the apt and dnf repositories, which
+      # airdress-ops publishes and signs: this workflow holds no signing
+      # key and cannot write them. It only asks ops to run its publish,
+      # with an airdress-bot token scoped to airdress-ops. A pre-release
+      # (a tag with `-`) never enters the repositories.
+      - name: Token for the package repositories
+        id: ops-bot
+        if: ${{ !contains(steps.version.outputs.tag, '-') }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: airdress-co
+          repositories: airdress-ops
+          permission-actions: write
+
+      - name: Publish to the package repositories
+        if: ${{ !contains(steps.version.outputs.tag, '-') }}
+        env:
+          GH_TOKEN: ${{ steps.ops-bot.outputs.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if ! gh workflow run package-repos.yml --repo airdress-co/airdress-ops --ref main \
+               -f product=airdress-cli -f version="$TAG" -f mode=publish; then
+            echo "::error::Could not dispatch package-repos.yml in airdress-ops for $TAG. The release itself is published. The daily scheduled run in airdress-ops publishes any version the repositories are behind on within a day; to publish now, run: gh workflow run package-repos.yml --repo airdress-co/airdress-ops --ref main -f product=airdress-cli -f version=$TAG"
+            exit 1
+          fi
+          echo "Dispatched package-repos.yml in airdress-ops for $TAG."
