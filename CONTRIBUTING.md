@@ -149,7 +149,20 @@ versions by hand or push a tag yourself, and do not use `just release` on
 its own: with no tag it tags `main`'s head without annotation, as nobody in
 particular.
 
-**After a release.** The Claude Code plugin builds `airdress-mcp` from a
+**After a release: the apt and dnf repositories.** A release does not
+reach them by itself. airdress-ops publishes and signs them, and only
+when the owner asks, so a stable version goes in with one command, run
+whenever it should:
+
+```sh
+gh workflow run package-repos.yml --repo airdress-co/airdress-ops --ref main \
+  -f mode=publish -f product=airdress-cli -f version=vX.Y.Z
+```
+
+Pre-releases never go in. airdress-ops' RB-102 covers the rest (rollback,
+the re-sign, the key).
+
+**After a release: the plugin.** The Claude Code plugin builds `airdress-mcp` from a
 pinned airdress-cli tag (`server-src.json` in
 airdress-co/airdress-claude-code). A server change reaches plugin users
 only once the plugin moves that pin and releases; its CONTRIBUTING.md has

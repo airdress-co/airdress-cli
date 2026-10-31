@@ -71,6 +71,10 @@ to `main`; landing it with `just bot-merge` tags the release and builds
 it. The steps, and what to do when the tag does not appear, are in
 CONTRIBUTING.md § Releases. Do not run `just release` on its own.
 
+A release does **not** publish to the apt and dnf repositories (owner,
+2026-11-01): that is a separate, deliberate dispatch of airdress-ops'
+`package-repos.yml` (SPEC-179; CONTRIBUTING.md § After a release).
+
 ## Login flows
 
 `auth login` uses authorization code + PKCE on a loopback port with
