@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.28](https://github.com/airdress-co/airdress-cli/compare/v0.1.27...v0.1.28) - 2026-10-31
+
+### Build and release
+
+- *(release)* Name the fallback when the package-repository token cannot be minted
+
 ## [0.1.27](https://github.com/airdress-co/airdress-cli/compare/v0.1.26...v0.1.27) - 2026-10-31
 
 ### Added
