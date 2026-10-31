@@ -34,9 +34,39 @@ tomorrow.
 
 ## Install
 
-Linux and macOS, with one line. It fetches the latest release, verifies its
-checksum and installs it: a `.deb` through `apt` on Debian and Ubuntu,
-otherwise a single binary in `~/.local/bin`.
+**Debian and Ubuntu**, from the signed apt repository:
+
+```sh
+sudo curl -fsSLo /usr/share/keyrings/airdress-archive-keyring.gpg \
+  https://downloads.airdress.co/keys/airdress-archive-keyring.gpg
+printf '%s\n' 'Types: deb' 'URIs: https://downloads.airdress.co/apt' 'Suites: stable' \
+  'Components: main' 'Architectures: amd64 arm64' \
+  'Signed-By: /usr/share/keyrings/airdress-archive-keyring.gpg' \
+  | sudo tee /etc/apt/sources.list.d/airdress.sources
+sudo apt update && sudo apt install airdress
+```
+
+**Fedora and RHEL**, from the signed dnf repository: write
+`/etc/yum.repos.d/airdress.repo` as the
+[install guide](https://docs.airdress.co/cli/install/) shows, then
+`sudo dnf install airdress`.
+
+Both repositories are signed with this key; compare it with
+`gpg --show-keys /usr/share/keyrings/airdress-archive-keyring.gpg` (or
+what dnf shows on first use):
+
+```text
+Airdress package signing (2026) <noc@airdress.co>
+F3E8 0167 F3BE 156D 16AD  5880 DC4A D1F0 E3CF 2BDB
+```
+
+Updates then come with `apt upgrade` or `dnf upgrade`; `airdress update`
+leaves a package install to the package manager.
+
+**Elsewhere** (macOS, other Linux), one line. It fetches the latest
+release, verifies its checksum and installs a single binary in
+`~/.local/bin`. On Debian, Ubuntu, Fedora and RHEL, run as root, it sets
+up the repository above instead (`AIRDRESS_CLI_REPO=0` turns that off).
 
 ```sh
 curl -fsSL https://get.airdress.co/cli | sh
@@ -45,9 +75,7 @@ curl -fsSL https://get.airdress.co/cli | sh
 Windows and manual installs: download `airdress-<platform>` from the
 [releases](https://github.com/airdress-co/airdress-cli/releases) and put it
 on your `PATH`. Builds exist for Linux (x86_64, arm64), macOS (Intel, Apple
-silicon) and Windows (x86_64).
-
-Later, the CLI updates itself:
+silicon) and Windows (x86_64). A binary install updates itself:
 
 ```sh
 airdress update            # to the newest release
