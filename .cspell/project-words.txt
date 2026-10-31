@@ -287,3 +287,8 @@ widenings
 bidi
 cmark
 TASKLISTS
+rpms
+gpgkey
+libyaml
+lintian
+vercmp

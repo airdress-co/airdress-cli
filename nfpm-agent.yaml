@@ -1,12 +1,13 @@
 name: airdress-agent
-arch: ${DEB_ARCH}
+arch: ${PKG_ARCH}
 platform: linux
-version: ${DEB_VERSION}
+version: ${PKG_VERSION}
 section: utils
 priority: optional
 maintainer: Airdress <noc@airdress.co>
 description: |
   Airdress agent device — this machine as an agent device of your airdress.
+  The agent device service for a machine you own, as one static binary.
 vendor: Airdress
 homepage: https://airdress.co
 license: Apache-2.0
@@ -15,3 +16,28 @@ contents:
     dst: /usr/bin/airdress-agent
     file_info:
       mode: 0755
+  # The licence: Debian's copyright file (machine-readable, pointing at
+  # common-licenses), and rpm's %license (the full text).
+  - src: ./packaging/copyright
+    dst: /usr/share/doc/airdress-agent/copyright
+    packager: deb
+    file_info:
+      mode: 0644
+  - src: ./LICENSE
+    dst: /usr/share/licenses/airdress-agent/LICENSE
+    type: license
+    packager: rpm
+    file_info:
+      mode: 0644
+  - src: ./packaging/lintian-overrides-airdress-agent
+    dst: /usr/share/lintian/overrides/airdress-agent
+    packager: deb
+    file_info:
+      mode: 0644
+# The keyring package carries the key apt checks this package's source
+# with. A Recommends, so a one-off `apt install ./file.deb` still works
+# without it. rpm has no keyring package: dnf reads the key from `gpgkey`.
+overrides:
+  deb:
+    recommends:
+      - airdress-archive-keyring

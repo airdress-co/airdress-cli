@@ -1,0 +1,7 @@
+# A static Rust binary: its crates (unsafe-libyaml among them) are compiled
+# in, which is what lintian reads as an embedded library. There is no
+# system library to link instead.
+airdress-agent: embedded-library
+# A vendor package built from a release, not from a Debian source package:
+# the changelog is CHANGELOG.md and the GitHub release notes.
+airdress-agent: no-changelog

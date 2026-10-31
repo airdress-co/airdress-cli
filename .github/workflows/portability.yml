@@ -1,7 +1,7 @@
 name: Linux portability
 # A pull request that can change what the Linux release builds (the release
 # workflow, its scripts, the packaging, or the dependency set) builds the
-# static Linux binaries and .debs exactly as release.yml does, and runs
+# static Linux binaries, .debs and .rpms exactly as release.yml does, and runs
 # them on every distribution of the stated baseline (linux-smoke.yml).
 # Single pass: the double build and byte compare stay on tags.
 on:
@@ -15,7 +15,10 @@ on:
       - nfpm.yaml
       - nfpm-agent.yaml
       - scripts/release-build.sh
-      - scripts/package-deb.sh
+      - scripts/package-linux.sh
+      - scripts/manifest-kind.sh
+      - LICENSE
+      - packaging/**
       - scripts/linux-smoke.sh
   workflow_dispatch:
 
@@ -73,10 +76,12 @@ jobs:
           NFPM_VERSION=2.41.3
           curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" \
             | sudo tar -xz -C /usr/local/bin nfpm
-      - name: Build .debs
+      - name: Build .debs and .rpms
         run: |
-          scripts/package-deb.sh nfpm.yaml ${{ matrix.artifact }} ${{ matrix.deb_arch }} v0.0.0 airdress
-          scripts/package-deb.sh nfpm-agent.yaml ${{ matrix.agent_artifact }} ${{ matrix.deb_arch }} v0.0.0 airdress-agent
+          for fmt in deb rpm; do
+            scripts/package-linux.sh "$fmt" nfpm.yaml ${{ matrix.artifact }} ${{ matrix.deb_arch }} v0.0.0 airdress
+            scripts/package-linux.sh "$fmt" nfpm-agent.yaml ${{ matrix.agent_artifact }} ${{ matrix.deb_arch }} v0.0.0 airdress-agent
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -93,6 +98,14 @@ jobs:
         with:
           name: ${{ matrix.agent_artifact }}-deb
           path: airdress-agent_*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-rpm
+          path: airdress-[0-9]*.rpm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.agent_artifact }}-rpm
+          path: airdress-agent-[0-9]*.rpm
 
   smoke:
     name: Smoke

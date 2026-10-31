@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-# Run the released Linux binaries and .debs on the distributions we say they
-# run on, each in a clean container of that distribution.
+# Run the released Linux binaries, .debs and .rpms on the distributions we
+# say they run on, each in a clean container of that distribution.
 #
 #   scripts/linux-smoke.sh <dist-dir> [expected-version]
 #
 # <dist-dir> holds what one release leg uploads for this machine's
-# architecture: airdress-linux-<arch>, airdress-agent-linux-<arch>, and the
-# two .debs. With an expected version (e.g. v0.1.3) the `--version` lines
-# must name it.
+# architecture: airdress-linux-<arch>, airdress-agent-linux-<arch>, the
+# two .debs and the two .rpms. Where the image has dpkg the .debs are
+# installed, where it has rpm the .rpms are (unsigned: the repository copy
+# is signed elsewhere, and rpm installs an unsigned file by default). With
+# an expected version (e.g. v0.1.3) the `--version` lines must name it.
 #
 # The stated baseline is what this checks: Debian 12, Ubuntu 22.04 and
-# 24.04, Fedora 40, RHEL 9 and Alpine. Each binary must be
-# static, so no shared library and no glibc version is required of the
-# host: v0.1.2 needed glibc 2.39 and libdbus and refused to start on
+# 24.04, Fedora 40, RHEL 9 and Alpine, plus the newest Fedora, for its newer
+# rpm (6.x). Each binary must be static, so no shared library and no glibc
+# version is required of the host: v0.1.2 needed glibc 2.39 and libdbus and refused to start on
 # Debian 12. Writes a Markdown table to $GITHUB_STEP_SUMMARY when set.
 set -euo pipefail
 
@@ -45,6 +47,7 @@ images=(
   docker.io/library/ubuntu:22.04
   docker.io/library/ubuntu:24.04
   docker.io/library/fedora:40
+  docker.io/library/fedora:latest
   registry.access.redhat.com/ubi9/ubi-minimal:latest
   docker.io/library/alpine:3.20
 )
@@ -53,8 +56,8 @@ summary=${GITHUB_STEP_SUMMARY:-/dev/null}
 {
   echo "### Linux smoke ($arch)"
   echo
-  echo "| Image | airdress | airdress-agent | .deb |"
-  echo "|---|---|---|---|"
+  echo "| Image | airdress | airdress-agent | .deb | .rpm |"
+  echo "|---|---|---|---|---|"
 } >>"$summary"
 
 fail=0
@@ -84,15 +87,22 @@ for image in "${images[@]}"; do
         check airdress-agent "$(airdress-agent --version)"
         deb=ok
       fi
-      echo "$v|$a|$deb"
+      rpm=-
+      if command -v rpm >/dev/null 2>&1; then
+        rpm -i /dist/airdress-[0-9]*.rpm /dist/airdress-agent-[0-9]*.rpm
+        check airdress "$(airdress --version)"
+        check airdress-agent "$(airdress-agent --version)"
+        rpm=ok
+      fi
+      echo "$v|$a|$deb|$rpm"
     ' 2>&1) && rc=0 || rc=$?
   echo "$out"
   if [ "$rc" -eq 0 ]; then
-    IFS='|' read -r v a deb <<<"$(tail -n1 <<<"$out")"
-    echo "| \`$image\` | $v | $a | $deb |" >>"$summary"
+    IFS='|' read -r v a deb rpm <<<"$(tail -n1 <<<"$out")"
+    echo "| \`$image\` | $v | $a | $deb | $rpm |" >>"$summary"
   else
     echo "::error::$image: $(tail -n1 <<<"$out")"
-    echo "| \`$image\` | FAILED | | |" >>"$summary"
+    echo "| \`$image\` | FAILED | | | |" >>"$summary"
     fail=1
   fi
 done

@@ -175,16 +175,20 @@ jobs:
             | sudo tar -xz -C /usr/local/bin nfpm
           nfpm --version
 
-      # Static binaries, so the packages declare no Depends.
-      - name: Build .debs
+      # Static binaries, so the packages declare no Depends. The rpms are
+      # unsigned here: airdress-ops signs the repository copy when it
+      # publishes the package repositories, and this workflow holds no key.
+      - name: Build .debs and .rpms
         if: matrix.deb_arch
         env:
           TAG: ${{ needs.tag.outputs.tag }}
         run: |
-          scripts/package-deb.sh nfpm.yaml target/${{ matrix.target }}/release/airdress \
-            ${{ matrix.deb_arch }} "$TAG" airdress
-          scripts/package-deb.sh nfpm-agent.yaml target/${{ matrix.target }}/release/airdress-agent \
-            ${{ matrix.deb_arch }} "$TAG" airdress-agent
+          for fmt in deb rpm; do
+            scripts/package-linux.sh "$fmt" nfpm.yaml target/${{ matrix.target }}/release/airdress \
+              ${{ matrix.deb_arch }} "$TAG" airdress
+            scripts/package-linux.sh "$fmt" nfpm-agent.yaml target/${{ matrix.target }}/release/airdress-agent \
+              ${{ matrix.deb_arch }} "$TAG" airdress-agent
+          done
 
       - uses: actions/upload-artifact@v4
         with:
@@ -201,6 +205,17 @@ jobs:
           path: |
             airdress_*_${{ matrix.deb_arch }}.deb
             airdress_*_${{ matrix.deb_arch }}.deb.sha256
+
+      # The rpm arch (x86_64, aarch64) is the file name's last component;
+      # `airdress-[0-9]*` keeps the agent's rpm out of the CLI's artifact.
+      - name: Upload .rpm artifact
+        if: matrix.deb_arch
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-rpm
+          path: |
+            airdress-[0-9]*.rpm
+            airdress-[0-9]*.rpm.sha256
 
       - name: Upload airdress-agent
         if: matrix.agent_artifact
@@ -219,6 +234,15 @@ jobs:
           path: |
             airdress-agent_*_${{ matrix.deb_arch }}.deb
             airdress-agent_*_${{ matrix.deb_arch }}.deb.sha256
+
+      - name: Upload airdress-agent .rpm
+        if: matrix.deb_arch
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.agent_artifact }}-rpm
+          path: |
+            airdress-agent-[0-9]*.rpm
+            airdress-agent-[0-9]*.rpm.sha256
 
   # ---------------------------------------------------------------------
   # Reproducibility (rust guide R-WS-8): the same tag, toolchain and lockfile
@@ -444,25 +468,12 @@ jobs:
             sha=$(awk '{print $1}' "artifacts/${name}.sha256")
             size=$(stat --printf='%s' "$f" 2>/dev/null || stat -f '%z' "$f")
 
-            # The agent has kinds of its own (`agent`, `agent-deb`), and the
-            # CLI's artifacts are listed before it (see the jq below): an
-            # installer that took the first entry for a platform installed
-            # airdress-agent as `airdress` (v0.1.1, v0.1.2).
-            case "$name" in
-              airdress-agent_*.deb) kind="agent-deb" ;;
-              airdress-agent-*)     kind="agent" ;;
-              *.deb)                kind="deb" ;;
-              *)                    kind="binary" ;;
-            esac
-
-            case "$name" in
-              *linux-amd64*|*_amd64.deb)   plat="linux-amd64" ;;
-              *linux-arm64*|*_arm64.deb)   plat="linux-arm64" ;;
-              *darwin-amd64*)              plat="darwin-amd64" ;;
-              *darwin-arm64*)              plat="darwin-arm64" ;;
-              *windows-amd64*)             plat="windows-amd64" ;;
-              *) continue ;;
-            esac
+            # Kind and platform by file name; the agent's kinds, and why
+            # the CLI is listed first (the jq below), are explained in the
+            # script. Unlisted files print nothing.
+            classified=$(scripts/manifest-kind.sh "$name")
+            [ -n "$classified" ] || continue
+            read -r kind plat <<<"$classified"
 
             ARTIFACTS=$(echo "$ARTIFACTS" | jq \
               --arg p "$plat" --arg k "$kind" --arg fn "$name" --arg sha "$sha" --argjson sz "$size" \
@@ -475,9 +486,13 @@ jobs:
             --argjson pr "$PRE_RELEASE" \
             --arg pub "$PUBLISHED" \
             --argjson arts "$ARTIFACTS" \
-            '{schema_version: $sv, version: $v, pre_release: $pr,
-              artifacts: ($arts | map(select(.kind | startswith("agent") | not))
-                                + map(select(.kind | startswith("agent")))),
+            '# Binaries, then debs, then rpms, as before the rpms existed: an
+             # rpm file name (airdress-0.1.27-…) sorts before the binaries.
+             def rank: {"binary": 0, "agent": 0, "deb": 1, "agent-deb": 1,
+                        "rpm": 2, "agent-rpm": 2}[.kind];
+             {schema_version: $sv, version: $v, pre_release: $pr,
+              artifacts: (($arts | map(select(.kind | startswith("agent") | not)) | sort_by(rank))
+                        + ($arts | map(select(.kind | startswith("agent"))) | sort_by(rank))),
               published_at: $pub}' \
             > manifest.json
 
@@ -531,3 +546,4 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           files: artifacts/*
           generate_release_notes: true
+

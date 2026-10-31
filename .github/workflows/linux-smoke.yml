@@ -1,10 +1,11 @@
 name: Linux smoke
-# Runs the Linux binaries and .debs a calling workflow built (its artifacts
-# `airdress-linux-<arch>`, `airdress-agent-linux-<arch>` and their `-deb`
-# twins) on every distribution of the stated baseline, each in a clean
-# container: Debian 12, Ubuntu 22.04 and 24.04, Fedora 40, RHEL 9 (UBI) and
-# Alpine. Called by release.yml before anything is published, and by
-# portability.yml on pull requests that can change what the release builds.
+# Runs the Linux binaries, .debs and .rpms a calling workflow built (its
+# artifacts `airdress-linux-<arch>`, `airdress-agent-linux-<arch>` and
+# their `-deb` and `-rpm` twins) on every distribution of the stated
+# baseline, each in a clean container: Debian 12, Ubuntu 22.04 and 24.04,
+# Fedora 40 and the newest Fedora, RHEL 9 (UBI) and Alpine. Called by
+# release.yml before anything is published, and by portability.yml on pull
+# requests that can change what the release builds.
 on:
   workflow_call:
     inputs:
@@ -40,7 +41,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: "{airdress-linux-${{ matrix.arch }},airdress-linux-${{ matrix.arch }}-deb,airdress-agent-linux-${{ matrix.arch }},airdress-agent-linux-${{ matrix.arch }}-deb}"
+          pattern: "{airdress-linux-${{ matrix.arch }},airdress-linux-${{ matrix.arch }}-deb,airdress-linux-${{ matrix.arch }}-rpm,airdress-agent-linux-${{ matrix.arch }},airdress-agent-linux-${{ matrix.arch }}-deb,airdress-agent-linux-${{ matrix.arch }}-rpm}"
           merge-multiple: true
       - name: Run on each distribution
         run: scripts/linux-smoke.sh dist "${{ inputs.version }}"

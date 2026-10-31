@@ -619,6 +619,9 @@ jobs:
       # (`--history`) is the pre-publication audit, run and decided by
       # the owner, so it is not a gate on every pull request.
       - run: scripts/check-public.sh
+      # The release manifest's kind and platform per file name: the agent's
+      # rpm must not be read as a bare agent binary.
+      - run: scripts/manifest-kind-test.sh
 
       # The gitleaks BINARY, pinned and checksummed — not
       # `gitleaks/gitleaks-action`, which refuses to run for an
