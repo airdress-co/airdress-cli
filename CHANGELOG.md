@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.29](https://github.com/airdress-co/airdress-cli/compare/v0.1.28...v0.1.29) - 2026-10-31
+
+### Documentation
+
+- *(readme)* Install from the signed apt and dnf repositories
+
+### Build and release
+
+- *(release)* The dispatch failure message no longer promises a daily run
+- *(release)* Stop asking airdress-ops to publish the package repositories
+
 ## [0.1.28](https://github.com/airdress-co/airdress-cli/compare/v0.1.27...v0.1.28) - 2026-10-31
 
 ### Build and release
