@@ -294,3 +294,4 @@ lintian
 vercmp
 dpkg
 queryformat
+tlsv

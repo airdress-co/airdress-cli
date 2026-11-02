@@ -1,0 +1,17 @@
+# Every `uses:` is pinned to a commit SHA, with the version in a trailing
+# comment. Dependabot moves both together. Monthly and grouped, so a
+# month's action bumps cost one pull request and one CI run.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: ci

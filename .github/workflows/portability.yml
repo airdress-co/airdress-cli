@@ -51,7 +51,7 @@ jobs:
             agent_artifact: airdress-agent-linux-arm64
             deb_arch: arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
       - uses: ./.github/actions/private-deps
@@ -73,36 +73,42 @@ jobs:
           cp target/${{ matrix.target }}/release/airdress-agent ${{ matrix.agent_artifact }}
       - name: Install nfpm
         run: |
+          set -euo pipefail
           NFPM_VERSION=2.41.3
-          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" \
-            | sudo tar -xz -C /usr/local/bin nfpm
+          # Pinned from the release's checksums.txt and re-hashed locally.
+          NFPM_SHA256=22aa6d3bc2ec239d62d3d190bcb036a47f2b24e0c3c6edfccebb6a55fbb2078e
+          tarball="${RUNNER_TEMP}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          curl --proto '=https' --tlsv1.2 -fsSL -o "$tarball" \
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/$(basename "$tarball")"
+          echo "${NFPM_SHA256}  ${tarball}" | sha256sum -c -
+          sudo tar -xzf "$tarball" -C /usr/local/bin nfpm
       - name: Build .debs and .rpms
         run: |
           for fmt in deb rpm; do
             scripts/package-linux.sh "$fmt" nfpm.yaml ${{ matrix.artifact }} ${{ matrix.deb_arch }} v0.0.0 airdress
             scripts/package-linux.sh "$fmt" nfpm-agent.yaml ${{ matrix.agent_artifact }} ${{ matrix.deb_arch }} v0.0.0 airdress-agent
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.agent_artifact }}
           path: ${{ matrix.agent_artifact }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact }}-deb
           path: airdress_*.deb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.agent_artifact }}-deb
           path: airdress-agent_*.deb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact }}-rpm
           path: airdress-[0-9]*.rpm
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.agent_artifact }}-rpm
           path: airdress-agent-[0-9]*.rpm

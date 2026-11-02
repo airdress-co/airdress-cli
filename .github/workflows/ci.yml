@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install system deps
         # prek runs `cargo clippy` as a local hook, so it compiles and
         # needs libdbus exactly as the build jobs do. PR #21 added this
@@ -32,10 +32,10 @@ jobs:
         with:
           app-id: ${{ secrets.CI_APP_ID }}
           app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-      - uses: pre-commit/action@v3.0.1
+      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
   attribution:
     name: Commit attribution
@@ -48,7 +48,7 @@ jobs:
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -102,7 +102,7 @@ jobs:
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Rust toolchain (rust-toolchain.toml)
         shell: bash
         run: rustup toolchain install && rustup target add ${{ matrix.target }}
@@ -123,7 +123,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install system deps
         # The keyring crate (device root-key storage) links libdbus via
         # Secret Service on Linux, so a bare runner fails at build time
@@ -152,7 +152,7 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install system deps
         run: |
           sudo apt-get update -qq
@@ -174,7 +174,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install system deps
         # The keyring crate (device root-key storage) links libdbus via
         # Secret Service on Linux, so a bare runner fails at build time
@@ -206,8 +206,8 @@ jobs:
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/create-github-app-token@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         id: token
         with:
           app-id: ${{ secrets.CI_APP_ID }}
@@ -219,7 +219,7 @@ jobs:
           TOKEN: ${{ steps.token.outputs.token }}
         run: |
           set -euo pipefail
-          curl -fsSL \
+          curl --proto '=https' --tlsv1.2 -fsSL \
             -H "Authorization: Bearer ${TOKEN}" \
             -H "Accept: application/vnd.github.raw" \
             "https://api.github.com/repos/airdress-co/airdress-operator/contents/crates/airdress-operator/src/remote_mcp/catalogue.json?ref=main" \
@@ -240,8 +240,8 @@ jobs:
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/create-github-app-token@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         id: token
         # The app may not be installed on the map repository; the job then
         # says so and the crate's own pin test is the only check.
@@ -260,7 +260,7 @@ jobs:
             echo "::warning::no token for the map repository: the vectors were not compared with it"
             exit 0
           fi
-          code=$(curl -sSL -o maps-vectors.json -w '%{http_code}' \
+          code=$(curl --proto '=https' --tlsv1.2 -sSL -o maps-vectors.json -w '%{http_code}' \
             -H "Authorization: Bearer ${TOKEN}" \
             -H "Accept: application/vnd.github.raw" \
             "https://api.github.com/repos/airdress-co/airdress-maps/contents/services/maps-front/web/test/fixtures/address-vectors.json?ref=main")
@@ -284,7 +284,7 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install system deps
         run: |
           sudo apt-get update -qq
@@ -314,7 +314,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
       # `rustup toolchain install` with no argument installs the file's.
       - name: Rust toolchain (rust-toolchain.toml)
@@ -337,7 +337,7 @@ jobs:
         run: |
           set -euo pipefail
           tarball="cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz"
-          curl -sSfL -o "$tarball" \
+          curl --proto '=https' --tlsv1.2 -sSfL -o "$tarball" \
             "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_VERSION}/${tarball}"
           echo "${DENY_SHA256}  ${tarball}" | sha256sum -c -
           tar xzf "$tarball" --strip-components=1 \
@@ -355,7 +355,7 @@ jobs:
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
       # `rustup toolchain install` with no argument installs the file's.
       - name: Rust toolchain (rust-toolchain.toml)
@@ -387,7 +387,7 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
       # `rustup toolchain install` with no argument installs the file's.
       - name: Rust toolchain (rust-toolchain.toml)
@@ -415,7 +415,7 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install system deps
         run: |
           sudo apt-get update -qq
@@ -463,7 +463,7 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install system deps
         run: |
           sudo apt-get update -qq
@@ -490,7 +490,7 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install system deps
         run: |
           sudo apt-get update -qq
@@ -521,7 +521,7 @@ jobs:
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install system deps
         run: |
           sudo apt-get update -qq
@@ -557,7 +557,7 @@ jobs:
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The toolchain rust-toolchain.toml pins (R-WS-9), not today's "stable":
       # `rustup toolchain install` with no argument installs the file's.
       - name: Rust toolchain (rust-toolchain.toml)
@@ -590,7 +590,7 @@ jobs:
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install system deps
         run: |
           sudo apt-get update -qq
@@ -611,7 +611,7 @@ jobs:
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - run: scripts/check-doc-numbers.sh
@@ -636,7 +636,7 @@ jobs:
         run: |
           set -euo pipefail
           tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -sSfL -o "$tarball" \
+          curl --proto '=https' --tlsv1.2 -sSfL -o "$tarball" \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
           echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
           tar xzf "$tarball" gitleaks
