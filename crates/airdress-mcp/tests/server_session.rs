@@ -185,6 +185,12 @@ fn operator_route(line: &str) -> (u16, String) {
         map_search_answer(line)
     } else if line.contains("/v1/maps/layers") {
         map_layers_answer()
+    } else if line.contains("/v1/work/drafts") {
+        json!({"id": "6f1c2a8e-0d4b-4c43-9a51-2f7d8e9b0c11", "draft": {"profile": "task", "title": "Re-seal bay 3", "assignees": []}, "inferred": [], "expiresAt": "2026-11-03T00:00:00Z"})
+    } else if line.contains("/v1/work/items/") {
+        json!({"id": "0b9e2c57-1d3a-4f6e-8a21-5c4d3e2f1a00", "profile": "task", "number": 12, "title": "Re-seal bay 3", "status": "needs-action", "place": {"name": "Unit 4", "access": "Gate code 4711"}})
+    } else if line.contains("/v1/work/items") {
+        json!({"items": [{"id": "0b9e2c57-1d3a-4f6e-8a21-5c4d3e2f1a00", "profile": "task", "number": 12, "title": "Re-seal bay 3", "status": "needs-action", "due": {"date": "2026-11-06"}}]})
     } else if line.contains("/v1/tools/mcp") {
         json!({"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "ping", "description": "p", "inputSchema": {"type": "object"}, "annotations": {"readOnlyHint": true}}]}})
     } else {
@@ -513,6 +519,15 @@ fn a_whole_session_leaks_no_secret_and_reaches_nothing_but_the_mocks() {
         ("map_search", json!({"query": "Bonn"})),
         ("map_area", json!({"query": "Breisgau-Hochschwarzwald"})),
         ("map_layers", json!({})),
+        ("work_list", json!({})),
+        (
+            "work_get",
+            json!({"id": "0b9e2c57-1d3a-4f6e-8a21-5c4d3e2f1a00"}),
+        ),
+        (
+            "work_draft",
+            json!({"profile": "task", "title": "Re-seal bay 3"}),
+        ),
         (
             "map_link",
             json!({"place": {"lat": 50.7374, "lng": 7.0982}, "ask": "today"}),
@@ -538,6 +553,9 @@ fn a_whole_session_leaks_no_secret_and_reaches_nothing_but_the_mocks() {
         "map_area",
         "map_layers",
         "map_link",
+        "work_list",
+        "work_get",
+        "work_draft",
     ];
     let mut id = 10;
     let mut transcript = String::new();
@@ -558,6 +576,12 @@ fn a_whole_session_leaks_no_secret_and_reaches_nothing_but_the_mocks() {
         transcript.push_str(&r.to_string());
         transcript.push('\n');
     }
+    // `work_get` leaves a place's access text out: a model has no need to
+    // repeat a gate code.
+    assert!(
+        !transcript.contains("Gate code 4711"),
+        "work_get handed the access text to the model"
+    );
 
     // 133-C.6's second half: the default airdress's own tools are
     // offered under their own names, not only through `bridge_list`.

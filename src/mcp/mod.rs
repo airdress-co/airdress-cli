@@ -32,6 +32,7 @@ pub mod reexport;
 pub mod server;
 pub mod session;
 pub mod tools;
+pub mod work;
 
 pub use server::serve;
 pub use session::{parse_flag, ServeOpts};

@@ -44,6 +44,9 @@ pub enum Slice {
     Chat,
     /// The read-only map tools: search, areas, layers and links.
     Maps,
+    /// Work items: list and read tasks and RFIs, and offer a draft that a
+    /// person confirms. No tool creates, assigns, answers or closes one.
+    Work,
 }
 
 /// Which family a tool belongs to. The server uses it to decide what a
@@ -571,6 +574,7 @@ pub fn all() -> Vec<Tool> {
     bus_tools(&mut tools);
     chat_tools(&mut tools);
     map_tools(&mut tools);
+    work_tools(&mut tools);
 
     tools
 }
@@ -688,6 +692,88 @@ fn point_schema(description: &str) -> Value {
         "additionalProperties": false,
         "description": description,
     })
+}
+
+/// The work-item tools (SPEC-182 182-D.2). Reads, and one draft offer.
+///
+/// **No tool here creates, assigns, answers, moves or closes a work item**
+/// (FR-20): `work_draft` offers a draft to the signed-in person, who makes
+/// it a work item themselves, in the app or with `airdress work`. A test
+/// below holds the list to that.
+fn work_tools(tools: &mut Vec<Tool>) {
+    tools.push(Tool {
+        name: "work_list",
+        title: "List work items",
+        description: "Tasks and RFIs on this airdress that the signed-in person takes part in: \
+                      `waiting` (open and assigned to them, oldest first, the default), `mine`, \
+                      `asked` or `all`. Titles, statuses, numbers and due dates.",
+        input_schema: schema(
+            vec![
+                (
+                    "view",
+                    json!({"type": "string", "enum": ["waiting", "mine", "asked", "all"]}),
+                ),
+                (
+                    "limit",
+                    json!({"type": "integer", "minimum": 1, "maximum": LIMIT_MAX}),
+                ),
+                airdress_arg(),
+            ],
+            &[],
+        ),
+        read_only: true,
+        destructive: false,
+        idempotent: true,
+        remote: Remote::Yes,
+        slice: Slice::Work,
+        family: Family::Airdress,
+    });
+    tools.push(Tool {
+        name: "work_get",
+        title: "Read one work item",
+        description: "One task or RFI: its fields, its people, an RFI's question and official \
+                      answer. An answer that flags cost or schedule is not approval of either.",
+        input_schema: schema(
+            vec![
+                ("id", json!({"type": "string", "format": "uuid"})),
+                airdress_arg(),
+            ],
+            &["id"],
+        ),
+        read_only: true,
+        destructive: false,
+        idempotent: true,
+        remote: Remote::Yes,
+        slice: Slice::Work,
+        family: Family::Airdress,
+    });
+    tools.push(Tool {
+        name: "work_draft",
+        title: "Offer a work-item draft",
+        description: "Offer the signed-in person a draft of a task or an RFI. It is NOT created: \
+                      the person reviews the draft and creates it themselves. Name only what was \
+                      said; never invent a person, a date or a place. An RFI needs its question.",
+        input_schema: schema(
+            vec![
+                ("profile", json!({"type": "string", "enum": ["task", "rfi"]})),
+                ("title", json!({"type": "string", "maxLength": 200})),
+                ("assignee", json!({"type": "string", "description": "A person's display name, if one was named."})),
+                ("due", json!({"type": "string", "format": "date"})),
+                ("place", json!({"type": "string"})),
+                ("question", json!({"type": "string", "description": "For an RFI: the question in full."})),
+                ("references", json!({"type": "array", "items": {"type": "string"}, "maxItems": 20})),
+                ("proposed_answer", json!({"type": "string"})),
+                airdress_arg(),
+            ],
+            &["profile", "title"],
+        ),
+        read_only: false,
+        destructive: false,
+        idempotent: false,
+        remote: Remote::Yes,
+        slice: Slice::Work,
+        family: Family::Airdress,
+    });
 }
 
 fn map_tools(tools: &mut Vec<Tool>) {
@@ -1300,7 +1386,13 @@ fn chat_tools(tools: &mut Vec<Tool>) {
 
 /// The slices this build implements. A tool outside them is defined but
 /// not offered.
-pub const SHIPPED: &[Slice] = &[Slice::Query, Slice::Bus, Slice::Chat, Slice::Maps];
+pub const SHIPPED: &[Slice] = &[
+    Slice::Query,
+    Slice::Bus,
+    Slice::Chat,
+    Slice::Maps,
+    Slice::Work,
+];
 
 /// Whether a tool is offered by this build.
 pub fn shipped(tool: &Tool) -> bool {
@@ -1503,5 +1595,23 @@ mod tests {
              airdress-mcp-catalogue, then copy the file to the operator \
              (crates/airdress-operator/src/remote_mcp/catalogue.json)"
         );
+    }
+
+    #[test]
+    fn no_work_tool_creates_assigns_answers_or_closes() {
+        let work: Vec<_> = all()
+            .into_iter()
+            .filter(|t| t.slice == Slice::Work)
+            .collect();
+        let names: Vec<_> = work.iter().map(|t| t.name).collect();
+        assert_eq!(names, ["work_list", "work_get", "work_draft"]);
+        for t in &work {
+            assert!(!t.destructive, "{}", t.name);
+            assert!(t.read_only || t.name == "work_draft", "{} writes", t.name);
+            for verb in ["create", "assign", "answer", "close", "status"] {
+                assert!(!t.name.contains(verb), "{} reads as a write verb", t.name);
+            }
+        }
+        assert!(work[2].description.contains("NOT created"));
     }
 }

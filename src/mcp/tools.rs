@@ -123,6 +123,15 @@ async fn dispatch(session: &Arc<Session>, name: &str, args: &Value) -> Result<Ou
         "function_validate" => function_deploy_or_plan(session, &target, args, true).await,
         "function_deploy" => function_deploy_or_plan(session, &target, args, false).await,
         "function_promote" => function_promote(session, &target, args).await,
+        "work_list" => crate::mcp::work::work_list(session, &target, args)
+            .await
+            .map(Outcome::data),
+        "work_get" => crate::mcp::work::work_get(session, &target, args)
+            .await
+            .map(Outcome::data),
+        "work_draft" => crate::mcp::work::work_draft(session, &target, args)
+            .await
+            .map(Outcome::data),
         "resources_list" => resources_list(session, &target, args).await,
         "resources_get" => resources_get(session, &target, args).await,
         "resources_apply" => resources_apply(session, &target, args).await,

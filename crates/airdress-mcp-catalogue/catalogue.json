@@ -9,7 +9,8 @@
     "Query",
     "Bus",
     "Chat",
-    "Maps"
+    "Maps",
+    "Work"
   ],
   "tools": [
     {
@@ -1716,6 +1717,143 @@
       "remote": "yes",
       "slice": "Maps",
       "title": "Link to a map state"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": "List work items"
+      },
+      "description": "Tasks and RFIs on this airdress that the signed-in person takes part in: `waiting` (open and assigned to them, oldest first, the default), `mine`, `asked` or `all`. Titles, statuses, numbers and due dates.",
+      "family": "airdress",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "airdress": {
+            "description": "Airdress name, id or FQDN. Omitted: the default airdress.",
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "view": {
+            "enum": [
+              "waiting",
+              "mine",
+              "asked",
+              "all"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "work_list",
+      "remote": "yes",
+      "slice": "Work",
+      "title": "List work items"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+        "title": "Read one work item"
+      },
+      "description": "One task or RFI: its fields, its people, an RFI's question and official answer. An answer that flags cost or schedule is not approval of either.",
+      "family": "airdress",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "airdress": {
+            "description": "Airdress name, id or FQDN. Omitted: the default airdress.",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "work_get",
+      "remote": "yes",
+      "slice": "Work",
+      "title": "Read one work item"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Offer a work-item draft"
+      },
+      "description": "Offer the signed-in person a draft of a task or an RFI. It is NOT created: the person reviews the draft and creates it themselves. Name only what was said; never invent a person, a date or a place. An RFI needs its question.",
+      "family": "airdress",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "airdress": {
+            "description": "Airdress name, id or FQDN. Omitted: the default airdress.",
+            "type": "string"
+          },
+          "assignee": {
+            "description": "A person's display name, if one was named.",
+            "type": "string"
+          },
+          "due": {
+            "format": "date",
+            "type": "string"
+          },
+          "place": {
+            "type": "string"
+          },
+          "profile": {
+            "enum": [
+              "task",
+              "rfi"
+            ],
+            "type": "string"
+          },
+          "proposed_answer": {
+            "type": "string"
+          },
+          "question": {
+            "description": "For an RFI: the question in full.",
+            "type": "string"
+          },
+          "references": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile",
+          "title"
+        ],
+        "type": "object"
+      },
+      "name": "work_draft",
+      "remote": "yes",
+      "slice": "Work",
+      "title": "Offer a work-item draft"
     }
   ]
 }

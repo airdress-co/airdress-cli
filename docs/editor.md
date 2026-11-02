@@ -89,6 +89,18 @@ place ("where should I eat in Bonn") gets no list of places, only the town
 and a link; a place you name is found like any other, with the note that
 places may have closed. The tools need you signed in, as every tool does.
 
+## Work items
+
+Three tools reach your tasks and RFIs:
+
+- `work_list` lists what waits on you, or what is yours, what you asked or
+  everything you can read.
+- `work_get` reads one item. It leaves out a place's access text, such as a
+  gate code, because an assistant has no need to repeat it.
+- `work_draft` offers you a draft of a task or an RFI. **It does not create
+  one.** You review the draft and create it yourself, in the app or with
+  `airdress work`. No tool creates, assigns, answers or closes a work item.
+
 ## When the airdress's root key changes
 
 The server pins the airdress's root key, and each agent device's key, the
