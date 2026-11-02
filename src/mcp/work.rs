@@ -49,11 +49,25 @@ async fn send(
     body: Option<&Value>,
 ) -> Result<Value> {
     let bearer = session.bearer(&target.fqdn).await?;
-    let url = format!("{}{path}", crate::mcp::operator_base(&target.fqdn));
+    let base = crate::mcp::operator_base(&target.fqdn);
+    request(&base, bearer.expose(), method, path, query, body).await
+}
+
+/// One call to an operator's work routes, read as JSON; a refusal becomes
+/// the sentence a model can act on.
+async fn request(
+    base: &str,
+    bearer: &str,
+    method: reqwest::Method,
+    path: &str,
+    query: &[(&str, String)],
+    body: Option<&Value>,
+) -> Result<Value> {
+    let url = format!("{base}{path}");
     let mut req = crate::http::client()?
         .request(method.clone(), &url)
         .query(query)
-        .bearer_auth(bearer.expose());
+        .bearer_auth(bearer);
     if let Some(b) = body {
         req = req.json(b);
     }
@@ -275,6 +289,78 @@ mod tests {
             "expiresAt": "2026-11-03T00:00:00Z"}));
         assert_eq!(a["created"], false);
         assert!(a["next"].as_str().unwrap().contains("not a work item"));
+    }
+
+    #[tokio::test]
+    async fn a_call_reads_json_and_turns_a_refusal_into_a_sentence() {
+        use crate::functions::test_support::{canned_operator, response};
+        let (base, handle) = canned_operator(vec![
+            response("200 OK", r#"{"items": []}"#),
+            response(
+                "403 Forbidden",
+                r#"{"error":"not_enabled","feature":"work"}"#,
+            ),
+            response("200 OK", "not json"),
+            response(
+                "201 Created",
+                r#"{"id": "d1", "draft": {}, "expiresAt": "x"}"#,
+            ),
+        ])
+        .await;
+        let list = request(
+            &base,
+            "t",
+            reqwest::Method::GET,
+            "/v1/work/items",
+            &[("view", "mine".to_owned())],
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(list_answer("mine", &list)["items"], json!([]));
+        let refused = request(
+            &base,
+            "t",
+            reqwest::Method::GET,
+            "/v1/work/items",
+            &[],
+            None,
+        )
+        .await;
+        assert!(refused.unwrap_err().to_string().contains("not turned on"));
+        let garbled = request(
+            &base,
+            "t",
+            reqwest::Method::GET,
+            "/v1/work/items/x",
+            &[],
+            None,
+        )
+        .await;
+        assert!(garbled.unwrap_err().to_string().contains("unreadable"));
+        let body = draft_body(&json!({"profile": "task", "title": "Re-seal"}));
+        let draft = request(
+            &base,
+            "t",
+            reqwest::Method::POST,
+            "/v1/work/drafts",
+            &[],
+            Some(&body),
+        )
+        .await
+        .unwrap();
+        assert_eq!(draft_answer(&draft)["draft"], "d1");
+        let seen = handle.await.unwrap();
+        assert!(
+            seen[0].starts_with("GET /v1/work/items?view=mine "),
+            "{}",
+            seen[0]
+        );
+        assert!(seen[0]
+            .to_ascii_lowercase()
+            .contains("authorization: bearer t"));
+        assert!(seen[3].starts_with("POST /v1/work/drafts "));
+        assert!(seen[3].contains("\"title\":\"Re-seal\""));
     }
 
     #[test]
