@@ -295,3 +295,5 @@ vercmp
 dpkg
 queryformat
 tlsv
+Qube
+taiki

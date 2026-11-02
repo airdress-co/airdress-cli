@@ -169,12 +169,21 @@ jobs:
           rustup toolchain install "$msrv" --profile minimal
           RUSTUP_TOOLCHAIN="$msrv" cargo check --workspace --all-targets --locked
 
+  # The tests run instrumented: one run gives the verdict and the coverage
+  # SonarQube Cloud reads, so coverage costs no second run of the tests. The
+  # scan is in this job, not a job of its own, because the report it reads
+  # is built here. The "SonarCloud Code Analysis" check it produces is a
+  # required check on main.
   test:
     name: Unit Tests
-    timeout-minutes: 10
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # SonarQube decides what is new code from history and blame;
+          # a shallow clone makes every line look new.
+          fetch-depth: 0
       - name: Install system deps
         # The keyring crate (device root-key storage) links libdbus via
         # Secret Service on Linux, so a bare runner fails at build time
@@ -189,11 +198,58 @@ jobs:
       - name: Rust toolchain (rust-toolchain.toml)
         shell: bash
         run: rustup toolchain install
+      - name: llvm-tools (coverage instrumentation)
+        run: rustup component add llvm-tools-preview
+      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: cargo-llvm-cov@0.9.1
       - uses: ./.github/actions/private-deps
         with:
           app-id: ${{ secrets.CI_APP_ID }}
           app-private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
-      - run: cargo test --locked --workspace
+      # The same tests `cargo test --locked --workspace` runs, except doc
+      # tests: cargo-llvm-cov runs those only on nightly. The workspace has
+      # none today (every fenced block in a doc comment is `text`), and the
+      # next step fails if one appears, so one cannot go unnoticed.
+      - name: Tests, with coverage
+        run: cargo llvm-cov --locked --workspace --lcov --output-path lcov.info
+      - name: No doc tests the coverage run skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Opening fences only (fence state is tracked per file). rustdoc
+          # treats a block as Rust when its info string is empty or made of
+          # rust/no_run/should_panic/compile_fail/ignore/editionNNNN.
+          runnable=$(git ls-files -z -- '*.rs' | xargs -0 awk '
+            FNR == 1 { open = 0 }
+            /^[[:space:]]*\/\/[\/!][[:space:]]*```/ {
+              if (open) { open = 0; next }
+              open = 1
+              info = $0; sub(/^[[:space:]]*\/\/[\/!][[:space:]]*```[[:space:]]*/, "", info)
+              n = split(info, a, /[,[:space:]]+/); rust = 1
+              for (i = 1; i <= n; i++)
+                if (a[i] != "" && a[i] !~ /^(rust|no_run|should_panic|compile_fail|ignore|edition[0-9]+)$/) rust = 0
+              if (rust) print FILENAME ":" FNR ": " $0
+            }')
+          if [[ -n "$runnable" ]]; then
+            echo "::error::doc tests exist but the coverage run does not run them; run them here with cargo test --doc"
+            echo "$runnable"
+            exit 1
+          fi
+      # A fork's pull request gets no secrets, and a run without the token
+      # skips the scan rather than failing. The token is set only for the
+      # scan step, never for the build, whose build scripts run third-party
+      # code.
+      - name: SonarQube Cloud token present?
+        id: sonar
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: echo "enabled=${SONAR_TOKEN:+true}" >> "$GITHUB_OUTPUT"
+      - name: SonarQube Cloud analysis
+        if: steps.sonar.outputs.enabled == 'true'
+        uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   catalogue-parity:
     name: MCP catalogue parity with the operator's remote server
