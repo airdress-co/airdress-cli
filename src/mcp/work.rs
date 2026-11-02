@@ -5,6 +5,8 @@
 //! sign-in. **None of them makes a work item.** `work_draft` offers the
 //! signed-in person a draft, which they create themselves, in the app or
 //! with `airdress work`: an assistant drafts, a person confirms.
+//!
+//! Everything but the HTTP call is a pure function, tested below.
 
 use std::sync::Arc;
 
@@ -78,7 +80,11 @@ fn summary(item: &Value) -> Value {
     };
     json!({
         "id": item["id"],
-        "label": format!("{} #{}", if profile == "rfi" { "RFI" } else { "Task" }, item["number"].as_u64().unwrap_or(0)),
+        "label": format!(
+            "{} #{}",
+            if profile == "rfi" { "RFI" } else { "Task" },
+            item["number"].as_u64().unwrap_or(0)
+        ),
         "profile": profile,
         "title": item["title"],
         "status": item["status"],
@@ -86,8 +92,8 @@ fn summary(item: &Value) -> Value {
     })
 }
 
-/// `work_list`.
-pub async fn work_list(session: &Arc<Session>, target: &Target, args: &Value) -> Result<Value> {
+/// The list a `work_list` call asks for: its view and limit.
+fn list_query(args: &Value) -> Result<(&str, u64)> {
     let view = args["view"].as_str().unwrap_or("waiting");
     if !["waiting", "mine", "asked", "all"].contains(&view) {
         return Err(anyhow!("view is waiting, mine, asked or all"));
@@ -96,6 +102,23 @@ pub async fn work_list(session: &Arc<Session>, target: &Target, args: &Value) ->
         .as_u64()
         .unwrap_or(airdress_mcp_catalogue::LIMIT_DEFAULT as u64)
         .clamp(1, airdress_mcp_catalogue::LIMIT_MAX as u64);
+    Ok((view, limit))
+}
+
+/// What `work_list` answers, from the operator's list.
+fn list_answer(view: &str, list: &Value) -> Value {
+    let items: Vec<Value> = list["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(summary)
+        .collect();
+    json!({ "view": view, "items": items })
+}
+
+/// `work_list`.
+pub async fn work_list(session: &Arc<Session>, target: &Target, args: &Value) -> Result<Value> {
+    let (view, limit) = list_query(args)?;
     let list = send(
         session,
         target,
@@ -105,31 +128,19 @@ pub async fn work_list(session: &Arc<Session>, target: &Target, args: &Value) ->
         None,
     )
     .await?;
-    let items: Vec<Value> = list["items"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(summary)
-        .collect();
-    Ok(json!({ "view": view, "items": items }))
+    Ok(list_answer(view, &list))
 }
 
-/// `work_get`. The place's access text (gate codes) is left out: a model
-/// has no need to repeat it.
-pub async fn work_get(session: &Arc<Session>, target: &Target, args: &Value) -> Result<Value> {
-    let id: uuid::Uuid = args["id"]
+fn item_id(args: &Value) -> Result<uuid::Uuid> {
+    args["id"]
         .as_str()
         .and_then(|s| s.parse().ok())
-        .ok_or_else(|| anyhow!("id is the work item's id"))?;
-    let mut item = send(
-        session,
-        target,
-        reqwest::Method::GET,
-        &format!("/v1/work/items/{id}"),
-        &[],
-        None,
-    )
-    .await?;
+        .ok_or_else(|| anyhow!("id is the work item's id"))
+}
+
+/// An item as a model may see it: the place's access text (gate codes)
+/// left out, and the approval note when an answer flags an impact.
+fn scrub(mut item: Value) -> Value {
     if let Some(place) = item.get_mut("place").and_then(Value::as_object_mut) {
         place.remove("access");
     }
@@ -141,13 +152,28 @@ pub async fn work_get(session: &Arc<Session>, target: &Target, args: &Value) -> 
     {
         item["note"] = json!("An answer is not approval of extra cost or time.");
     }
-    Ok(item)
+    item
 }
 
-/// `work_draft`: offer the signed-in person a draft. Never a work item.
-pub async fn work_draft(session: &Arc<Session>, target: &Target, args: &Value) -> Result<Value> {
+/// `work_get`.
+pub async fn work_get(session: &Arc<Session>, target: &Target, args: &Value) -> Result<Value> {
+    let id = item_id(args)?;
+    let item = send(
+        session,
+        target,
+        reqwest::Method::GET,
+        &format!("/v1/work/items/{id}"),
+        &[],
+        None,
+    )
+    .await?;
+    Ok(scrub(item))
+}
+
+/// The operator's draft body, from a tool call's arguments.
+fn draft_body(args: &Value) -> Value {
     let text = |k: &str| args[k].as_str().unwrap_or("").to_owned();
-    let body = json!({
+    json!({
         "profile": text("profile"),
         "title": text("title"),
         "assignee": text("assignee"),
@@ -156,7 +182,24 @@ pub async fn work_draft(session: &Arc<Session>, target: &Target, args: &Value) -
         "question": text("question"),
         "references": args["references"].as_array().cloned().unwrap_or_default(),
         "proposedAnswer": text("proposed_answer"),
-    });
+    })
+}
+
+/// What `work_draft` answers: that this is a draft, and what is next.
+fn draft_answer(draft: &Value) -> Value {
+    json!({
+        "draft": draft["id"],
+        "created": false,
+        "next": "This is a draft, not a work item. The person reviews it and creates it \
+                 themselves, in the app or with `airdress work`.",
+        "proposed": draft["draft"],
+        "expires_at": draft["expiresAt"],
+    })
+}
+
+/// `work_draft`: offer the signed-in person a draft. Never a work item.
+pub async fn work_draft(session: &Arc<Session>, target: &Target, args: &Value) -> Result<Value> {
+    let body = draft_body(args);
     let draft = send(
         session,
         target,
@@ -166,12 +209,88 @@ pub async fn work_draft(session: &Arc<Session>, target: &Target, args: &Value) -
         Some(&body),
     )
     .await?;
-    Ok(json!({
-        "draft": draft["id"],
-        "created": false,
-        "next": "This is a draft, not a work item. The person reviews it and creates it themselves, \
-                 in the app or with `airdress work`.",
-        "proposed": draft["draft"],
-        "expires_at": draft["expiresAt"],
-    }))
+    Ok(draft_answer(&draft))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_list_asks_for_a_known_view_within_the_limits() {
+        let default = airdress_mcp_catalogue::LIMIT_DEFAULT as u64;
+        assert_eq!(list_query(&json!({})).unwrap(), ("waiting", default));
+        assert_eq!(
+            list_query(&json!({"view": "asked", "limit": 0})).unwrap(),
+            ("asked", 1)
+        );
+        assert_eq!(
+            list_query(&json!({"view": "all", "limit": 10_000}))
+                .unwrap()
+                .1,
+            airdress_mcp_catalogue::LIMIT_MAX as u64
+        );
+        assert!(list_query(&json!({"view": "everything"})).is_err());
+    }
+
+    #[test]
+    fn a_list_names_each_item_and_its_due() {
+        let list = json!({"items": [
+            {"id": "a", "profile": "task", "number": 12, "title": "Re-seal",
+             "status": "needs-action", "due": {"date": "2026-11-06"}},
+            {"id": "b", "profile": "rfi", "number": 7, "title": "Sill?", "status": "open",
+             "rfi": {"replyBy": {"at": "2026-11-04T09:00:00Z"}}},
+        ]});
+        let a = list_answer("waiting", &list);
+        assert_eq!(a["items"][0]["label"], "Task #12");
+        assert_eq!(a["items"][0]["due"], "2026-11-06");
+        assert_eq!(a["items"][1]["label"], "RFI #7");
+        assert_eq!(a["items"][1]["due"], "2026-11-04T09:00:00Z");
+        assert_eq!(list_answer("all", &json!({}))["items"], json!([]));
+    }
+
+    #[test]
+    fn an_item_reaches_a_model_without_its_gate_code() {
+        let item = scrub(json!({"place": {"name": "Unit 4", "access": "Gate code 4711"}}));
+        assert_eq!(item["place"], json!({"name": "Unit 4"}));
+        assert!(item.get("note").is_none());
+        let answered = scrub(json!({"rfi": {"officialAnswer":
+            {"costImpact": "possible", "scheduleImpact": "none"}}}));
+        assert_eq!(
+            answered["note"],
+            "An answer is not approval of extra cost or time."
+        );
+        assert!(item_id(&json!({"id": "nope"})).is_err());
+        assert!(item_id(&json!({"id": "0b9e2c57-1d3a-4f6e-8a21-5c4d3e2f1a00"})).is_ok());
+    }
+
+    #[test]
+    fn a_draft_is_said_to_be_a_draft() {
+        let body = draft_body(&json!({"profile": "rfi", "title": "Sill?",
+            "question": "Under or over?", "proposed_answer": "Under", "references": ["A-301"]}));
+        assert_eq!(body["proposedAnswer"], "Under");
+        assert_eq!(body["references"], json!(["A-301"]));
+        assert_eq!(body["assignee"], "");
+        let a = draft_answer(&json!({"id": "d1", "draft": {"title": "Sill?"},
+            "expiresAt": "2026-11-03T00:00:00Z"}));
+        assert_eq!(a["created"], false);
+        assert!(a["next"].as_str().unwrap().contains("not a work item"));
+    }
+
+    #[test]
+    fn refusals_say_what_to_do() {
+        let says = |status, body: &str| refusal(status, body).to_string();
+        assert!(says(403, r#"{"error":"not_enabled"}"#).contains("not turned on"));
+        assert!(
+            says(404, r#"{"error":{"code":"work_item_not_found"}}"#).contains("no such work item")
+        );
+        assert!(says(404, "").contains("newer release"));
+        assert!(
+            says(400, r#"{"error":{"message":"an RFI needs its question"}}"#)
+                .contains("an RFI needs its question")
+        );
+        assert!(says(400, "garbage").contains("not a usable draft"));
+        assert!(says(401, "").contains("refused"));
+        assert!(says(500, "").contains("Try again"));
+    }
 }
