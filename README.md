@@ -123,9 +123,10 @@ The documentation lives at [docs.airdress.co](https://docs.airdress.co/cli/):
 - [Exit codes](https://docs.airdress.co/cli/exit-codes/): the contract scripts rely on.
 
 The guides are also kept in this repository, under [`docs/`](docs/), with
-four that are only here for now:
+five that are only here for now:
 [devices, machines and homes](docs/devices-and-machines.md),
-[plugins](docs/plugins.md), [resources](docs/resources.md) and
+[plugins](docs/plugins.md), [resources](docs/resources.md),
+[work items](docs/work.md) and
 [keys and storage](docs/keys-and-storage.md).
 
 ## What leaves your machine
