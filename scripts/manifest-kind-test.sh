@@ -8,7 +8,7 @@ fail=0
 
 expect() { # <file-name> <expected output, empty for unlisted>
   got=$("$here/manifest-kind.sh" "$1")
-  if [ "$got" = "$2" ]; then
+  if [[ "$got" = "$2" ]]; then
     echo "ok    $1 -> ${2:-<unlisted>}"
   else
     echo "FAIL  $1: got '${got:-<unlisted>}', expected '${2:-<unlisted>}'" >&2

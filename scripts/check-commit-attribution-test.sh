@@ -26,8 +26,8 @@ expect() {
     # A refusal is exit 1 WITH a finding line; a crash also exits 1, and must
     # not count as the check working.
     err=$("$@" 2>&1 >/dev/null) || got=$?
-    if { [ "$want" = pass ] && [ "$got" -eq 0 ]; } ||
-        { [ "$want" = fail ] && [ "$got" -eq 1 ] && ! grep -q Traceback <<<"$err" &&
+    if { [[ "$want" = pass ]] && [[ "$got" -eq 0 ]]; } ||
+        { [[ "$want" = fail ]] && [[ "$got" -eq 1 ]] && ! grep -q Traceback <<<"$err" &&
             grep -q '^commit-attribution: ' <<<"$err"; }; then
         pass_count=$((pass_count + 1))
     else
@@ -79,7 +79,7 @@ trailer_count() { recorded | git interpret-trailers --parse | grep -c '^Committe
 expect_trailers() {
     local want="$1" label="$2" got
     got=$(trailer_count)
-    if [ "$got" = "$want" ]; then
+    if [[ "$got" = "$want" ]]; then
         pass_count=$((pass_count + 1))
     else
         echo "FAILED: $label (wanted $want Committed-As trailer(s), found $got)" >&2
@@ -181,12 +181,12 @@ git reset -q --hard "$BASE"
 
 usage=0
 python3 "$CHECK" >/dev/null 2>&1 || usage=$?
-if [ "$usage" -ne 2 ]; then
+if [[ "$usage" -ne 2 ]]; then
     echo "FAILED: no arguments must be a usage error (exit 2), got $usage" >&2
     fail=1
 fi
 
-if [ "$fail" -ne 0 ]; then
+if [[ "$fail" -ne 0 ]]; then
     exit 1
 fi
 echo "check-commit-attribution: $pass_count fixtures behave"

@@ -30,7 +30,7 @@ engine=$(command -v docker || command -v podman)
 cli="airdress-linux-$arch"
 agent="airdress-agent-linux-$arch"
 for f in "$cli" "$agent"; do
-  [ -f "$dist/$f" ] || { echo "missing $dist/$f" >&2; exit 1; }
+  [[ -f "$dist/$f" ]] || { echo "missing $dist/$f" >&2; exit 1; }
   chmod +x "$dist/$f"
   # Static means no program interpreter: nothing for the host to supply.
   if readelf -l "$dist/$f" | grep -q 'Requesting program interpreter'; then
@@ -97,7 +97,7 @@ for image in "${images[@]}"; do
       echo "$v|$a|$deb|$rpm"
     ' 2>&1) && rc=0 || rc=$?
   echo "$out"
-  if [ "$rc" -eq 0 ]; then
+  if [[ "$rc" -eq 0 ]]; then
     IFS='|' read -r v a deb rpm <<<"$(tail -n1 <<<"$out")"
     echo "| \`$image\` | $v | $a | $deb | $rpm |" >>"$summary"
   else

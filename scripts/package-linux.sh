@@ -25,7 +25,7 @@
 # list of variables so no other `$something` in the YAML is eaten.
 set -euo pipefail
 
-if [ $# -ne 6 ]; then
+if [[ $# -ne 6 ]]; then
     echo "usage: $0 <deb|rpm> <nfpm-config> <binary> <arch> <tag> <package-name>" >&2
     exit 2
 fi

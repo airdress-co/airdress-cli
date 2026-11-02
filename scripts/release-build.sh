@@ -29,7 +29,7 @@
 set -euo pipefail
 
 what=(--bin airdress)
-if [ "${1:-}" = "--agent" ]; then
+if [[ "${1:-}" = "--agent" ]]; then
   what=(--features mls --bin airdress-agent)
   shift
 fi
@@ -60,7 +60,7 @@ case "$target" in
     mkdir -p "$target_dir"
     engine=$(command -v docker || command -v podman)
     owner=()
-    [ "$(basename "$engine")" = docker ] && owner=(-e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)")
+    [[ "$(basename "$engine")" = docker ]] && owner=(-e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)")
     # Inside, every path already has its fixed name, so the remaps name
     # them for anything that reports the image's own cargo home.
     "$engine" run --rm \
@@ -92,7 +92,7 @@ case "$target" in
     ;;
 esac
 
-if [ "$use_cross" = "cross" ]; then
+if [[ "$use_cross" = "cross" ]]; then
   cross build --locked --release --target "$target" "${what[@]}"
 else
   cargo build --locked --release --target "$target" "${what[@]}"

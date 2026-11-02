@@ -85,7 +85,7 @@ with open(sys.argv[1]) as stream:
             found = executable
 print(found)
 ' "$artifacts")
-[ -n "$BINARY" ] && [ -x "$BINARY" ] || {
+[[ -n "$BINARY" ]] && [[ -x "$BINARY" ]] || {
     echo "egress test: could not find the built test binary" >&2
     exit 1
 }
