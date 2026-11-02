@@ -57,6 +57,7 @@ pub mod tls;
 pub mod ui;
 pub mod update;
 pub mod wire;
+pub mod work;
 
 /// The MLS client engine, behind the `mls` feature (off by default).
 #[cfg(feature = "mls")]

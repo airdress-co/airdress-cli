@@ -324,6 +324,20 @@ enum Commands {
         #[command(subcommand)]
         command: home::HomeCommands,
     },
+    /// Tasks and RFIs on your airdress: list what waits on you, read an
+    /// item, hand out a task, ask an RFI, move an item, answer an RFI, read
+    /// its history.
+    Work {
+        /// Profile to authenticate against
+        #[arg(short, long, global = true)]
+        profile: Option<String>,
+        /// Talk to this operator URL directly instead of resolving
+        /// `https://<fqdn>` via the hub. Dev-only.
+        #[arg(long, global = true, value_name = "URL")]
+        operator_url: Option<String>,
+        #[command(subcommand)]
+        command: airdress::work::WorkCommands,
+    },
     /// Install and remove plugins on your operator: list what is installed,
     /// install a signed release from the registry (or a definition the
     /// operator loaded), uninstall one, verify a release. Uses your hub
@@ -1049,6 +1063,24 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             home::run(
                 command,
                 home::RunArgs {
+                    profile: profile.as_deref(),
+                    paths: &paths,
+                    explicit_airdress,
+                    operator_url: operator_url.as_deref(),
+                    json: use_json,
+                    quiet,
+                },
+            )
+            .await?;
+        }
+        Commands::Work {
+            profile,
+            operator_url,
+            command,
+        } => {
+            airdress::work::run(
+                command,
+                airdress::work::RunArgs {
                     profile: profile.as_deref(),
                     paths: &paths,
                     explicit_airdress,
