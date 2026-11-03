@@ -260,15 +260,25 @@ pub async fn work_answer_draft(
     target: &Target,
     args: &Value,
 ) -> Result<Value> {
+    let bearer = session.bearer(&target.fqdn).await?;
+    offer_answer_draft(
+        &crate::mcp::operator_base(&target.fqdn),
+        bearer.expose(),
+        args,
+    )
+    .await
+}
+
+/// The operator call behind `work_answer_draft`.
+async fn offer_answer_draft(base: &str, bearer: &str, args: &Value) -> Result<Value> {
     let id = item_id(args)?;
-    let body = answer_draft_body(args);
-    let draft = send(
-        session,
-        target,
+    let draft = request(
+        base,
+        bearer,
         reqwest::Method::POST,
         &format!("/v1/work/items/{id}/answer-draft"),
         &[],
-        Some(&body),
+        Some(&answer_draft_body(args)),
     )
     .await?;
     Ok(answer_draft_answer(&draft))
@@ -427,6 +437,37 @@ mod tests {
             .contains("authorization: bearer t"));
         assert!(seen[3].starts_with("POST /v1/work/drafts "));
         assert!(seen[3].contains("\"title\":\"Re-seal\""));
+    }
+
+    #[tokio::test]
+    async fn an_answer_draft_is_offered_to_the_rfi_it_answers() {
+        use crate::functions::test_support::{canned_operator, response};
+        let (base, handle) = canned_operator(vec![
+            response(
+                "201 Created",
+                r#"{"id": "d2", "answers": "0b9e2c57-1d3a-4f6e-8a21-5c4d3e2f1a00", "draft": {"text": "Under"}, "expiresAt": "x"}"#,
+            ),
+            response(
+                "409 Conflict",
+                r#"{"error":{"code":"answer_exists"}}"#,
+            ),
+        ])
+        .await;
+        let args = json!({"id": "0b9e2c57-1d3a-4f6e-8a21-5c4d3e2f1a00", "text": "Under"});
+        let a = offer_answer_draft(&base, "t", &args).await.unwrap();
+        assert_eq!(
+            (a["draft"].as_str(), a["answered"].as_bool()),
+            (Some("d2"), Some(false))
+        );
+        let again = offer_answer_draft(&base, "t", &args).await;
+        assert!(again.unwrap_err().to_string().contains("already has"));
+        assert!(offer_answer_draft(&base, "t", &json!({"text": "x"}))
+            .await
+            .is_err());
+        let seen = handle.await.unwrap();
+        assert!(seen[0]
+            .starts_with("POST /v1/work/items/0b9e2c57-1d3a-4f6e-8a21-5c4d3e2f1a00/answer-draft "));
+        assert!(seen[0].contains("\"scheduleImpact\":\"none\""));
     }
 
     #[test]
