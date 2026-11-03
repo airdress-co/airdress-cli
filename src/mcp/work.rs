@@ -1,10 +1,12 @@
-//! The work-item tools: `work_list`, `work_get` and `work_draft`
-//! (SPEC-182 182-D.2).
+//! The work-item tools: `work_list`, `work_get`, `work_draft` and
+//! `work_answer_draft` (SPEC-182 182-D.2).
 //!
 //! They call the person's own operator (`/v1/work/…`) with the person's own
-//! sign-in. **None of them makes a work item.** `work_draft` offers the
-//! signed-in person a draft, which they create themselves, in the app or
-//! with `airdress work`: an assistant drafts, a person confirms.
+//! sign-in. **None of them makes or answers a work item.** `work_draft`
+//! offers the signed-in person a draft, which they create themselves, in
+//! the app or with `airdress work`; `work_answer_draft` offers them a draft
+//! of an RFI's answer, which they give themselves: an assistant drafts, a
+//! person confirms.
 //!
 //! Everything but the HTTP call is a pure function, tested below.
 
@@ -24,6 +26,8 @@ fn refusal(status: u16, body: &str) -> anyhow::Error {
     } else if status == 404 {
         "This airdress's operator does not have work items yet: it needs a newer release."
             .to_owned()
+    } else if status == 409 && body.contains("answer_exists") {
+        "That RFI already has its official answer.".to_owned()
     } else if status == 400 {
         format!("The airdress refused the draft: {}", detail(body))
     } else if status == 401 || status == 403 {
@@ -226,6 +230,50 @@ pub async fn work_draft(session: &Arc<Session>, target: &Target, args: &Value) -
     Ok(draft_answer(&draft))
 }
 
+/// The operator's answer-draft body, from a tool call's arguments.
+fn answer_draft_body(args: &Value) -> Value {
+    let impact = |k: &str| args[k].as_str().unwrap_or("none").to_owned();
+    json!({
+        "text": args["text"].as_str().unwrap_or(""),
+        "costImpact": impact("cost_impact"),
+        "scheduleImpact": impact("schedule_impact"),
+    })
+}
+
+/// What `work_answer_draft` answers: that this is a draft, and what is next.
+fn answer_draft_answer(draft: &Value) -> Value {
+    json!({
+        "draft": draft["id"],
+        "answers": draft["answers"],
+        "answered": false,
+        "next": "This is a draft, not the answer. The person reviews it and gives it \
+                 themselves, in the app.",
+        "proposed": draft["draft"],
+        "expires_at": draft["expiresAt"],
+    })
+}
+
+/// `work_answer_draft`: offer the signed-in person a draft of an RFI's
+/// answer. Never the answer.
+pub async fn work_answer_draft(
+    session: &Arc<Session>,
+    target: &Target,
+    args: &Value,
+) -> Result<Value> {
+    let id = item_id(args)?;
+    let body = answer_draft_body(args);
+    let draft = send(
+        session,
+        target,
+        reqwest::Method::POST,
+        &format!("/v1/work/items/{id}/answer-draft"),
+        &[],
+        Some(&body),
+    )
+    .await?;
+    Ok(answer_draft_answer(&draft))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,6 +337,24 @@ mod tests {
             "expiresAt": "2026-11-03T00:00:00Z"}));
         assert_eq!(a["created"], false);
         assert!(a["next"].as_str().unwrap().contains("not a work item"));
+    }
+
+    #[test]
+    fn an_answer_draft_is_said_to_be_a_draft() {
+        let body =
+            answer_draft_body(&json!({"id": "x", "text": "Under", "cost_impact": "possible"}));
+        assert_eq!(
+            body,
+            json!({"text": "Under", "costImpact": "possible", "scheduleImpact": "none"})
+        );
+        let a = answer_draft_answer(&json!({"id": "d2", "answers": "r1",
+            "draft": {"text": "Under"}, "expiresAt": "2026-11-04T00:00:00Z"}));
+        assert_eq!(
+            (a["draft"].as_str(), a["answers"].as_str()),
+            (Some("d2"), Some("r1"))
+        );
+        assert_eq!(a["answered"], false);
+        assert!(a["next"].as_str().unwrap().contains("not the answer"));
     }
 
     #[tokio::test]
@@ -376,6 +442,7 @@ mod tests {
                 .contains("an RFI needs its question")
         );
         assert!(says(400, "garbage").contains("not a usable draft"));
+        assert!(says(409, r#"{"error":{"code":"answer_exists"}}"#).contains("already has"));
         assert!(says(401, "").contains("refused"));
         assert!(says(500, "").contains("Try again"));
     }

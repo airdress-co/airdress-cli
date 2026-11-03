@@ -1854,6 +1854,62 @@
       "remote": "yes",
       "slice": "Work",
       "title": "Offer a work-item draft"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Offer an RFI answer draft"
+      },
+      "description": "Offer the signed-in person a draft of the official answer to an RFI they take part in. It is NOT the answer: the person reviews the draft and gives it themselves. Write only what they said the answer is; an answer that flags cost or schedule is not approval of either.",
+      "family": "airdress",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "airdress": {
+            "description": "Airdress name, id or FQDN. Omitted: the default airdress.",
+            "type": "string"
+          },
+          "cost_impact": {
+            "description": "Whether the answer may cost more: only what the answer itself says. Default none.",
+            "enum": [
+              "none",
+              "possible",
+              "yes"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "The RFI's id.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "schedule_impact": {
+            "description": "Whether the answer may take longer: only what the answer itself says. Default none.",
+            "enum": [
+              "none",
+              "possible",
+              "yes"
+            ],
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 8000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "work_answer_draft",
+      "remote": "yes",
+      "slice": "Work",
+      "title": "Offer an RFI answer draft"
     }
   ]
 }

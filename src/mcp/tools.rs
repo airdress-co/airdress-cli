@@ -132,6 +132,9 @@ async fn dispatch(session: &Arc<Session>, name: &str, args: &Value) -> Result<Ou
         "work_draft" => crate::mcp::work::work_draft(session, &target, args)
             .await
             .map(Outcome::data),
+        "work_answer_draft" => crate::mcp::work::work_answer_draft(session, &target, args)
+            .await
+            .map(Outcome::data),
         "resources_list" => resources_list(session, &target, args).await,
         "resources_get" => resources_get(session, &target, args).await,
         "resources_apply" => resources_apply(session, &target, args).await,

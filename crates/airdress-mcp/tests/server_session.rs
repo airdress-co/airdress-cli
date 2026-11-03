@@ -187,6 +187,8 @@ fn operator_route(line: &str) -> (u16, String) {
         map_layers_answer()
     } else if line.contains("/v1/work/drafts") {
         json!({"id": "6f1c2a8e-0d4b-4c43-9a51-2f7d8e9b0c11", "draft": {"profile": "task", "title": "Re-seal bay 3", "assignees": []}, "inferred": [], "expiresAt": "2026-11-03T00:00:00Z"})
+    } else if line.contains("/answer-draft") {
+        json!({"id": "7a2d3b9f-1e5c-4d54-8b62-3a8e9f0c1d22", "answers": "0b9e2c57-1d3a-4f6e-8a21-5c4d3e2f1a00", "draft": {"text": "Under", "costImpact": "none", "scheduleImpact": "none"}, "inferred": [], "expiresAt": "2026-11-03T00:00:00Z"})
     } else if line.contains("/v1/work/items/") {
         json!({"id": "0b9e2c57-1d3a-4f6e-8a21-5c4d3e2f1a00", "profile": "task", "number": 12, "title": "Re-seal bay 3", "status": "needs-action", "place": {"name": "Unit 4", "access": "Gate code 4711"}})
     } else if line.contains("/v1/work/items") {
@@ -529,6 +531,10 @@ fn a_whole_session_leaks_no_secret_and_reaches_nothing_but_the_mocks() {
             json!({"profile": "task", "title": "Re-seal bay 3"}),
         ),
         (
+            "work_answer_draft",
+            json!({"id": "0b9e2c57-1d3a-4f6e-8a21-5c4d3e2f1a00", "text": "Under"}),
+        ),
+        (
             "map_link",
             json!({"place": {"lat": 50.7374, "lng": 7.0982}, "ask": "today"}),
         ),
@@ -556,6 +562,7 @@ fn a_whole_session_leaks_no_secret_and_reaches_nothing_but_the_mocks() {
         "work_list",
         "work_get",
         "work_draft",
+        "work_answer_draft",
     ];
     let mut id = 10;
     let mut transcript = String::new();

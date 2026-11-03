@@ -694,12 +694,13 @@ fn point_schema(description: &str) -> Value {
     })
 }
 
-/// The work-item tools (SPEC-182 182-D.2). Reads, and one draft offer.
+/// The work-item tools (SPEC-182 182-D.2). Reads, and two draft offers.
 ///
 /// **No tool here creates, assigns, answers, moves or closes a work item**
 /// (FR-20): `work_draft` offers a draft to the signed-in person, who makes
-/// it a work item themselves, in the app or with `airdress work`. A test
-/// below holds the list to that.
+/// it a work item themselves, in the app or with `airdress work`, and
+/// `work_answer_draft` offers them a draft of an RFI's answer, which they
+/// give themselves. A test below holds the list to that.
 fn work_tools(tools: &mut Vec<Tool>) {
     tools.push(Tool {
         name: "work_list",
@@ -766,6 +767,40 @@ fn work_tools(tools: &mut Vec<Tool>) {
                 airdress_arg(),
             ],
             &["profile", "title"],
+        ),
+        read_only: false,
+        destructive: false,
+        idempotent: false,
+        remote: Remote::Yes,
+        slice: Slice::Work,
+        family: Family::Airdress,
+    });
+    let impact = |what: &str| {
+        json!({
+            "type": "string",
+            "enum": ["none", "possible", "yes"],
+            "description": format!("Whether the answer may {what}: only what the answer itself says. Default none."),
+        })
+    };
+    tools.push(Tool {
+        name: "work_answer_draft",
+        title: "Offer an RFI answer draft",
+        description: "Offer the signed-in person a draft of the official answer to an RFI they \
+                      take part in. It is NOT the answer: the person reviews the draft and gives \
+                      it themselves. Write only what they said the answer is; an answer that \
+                      flags cost or schedule is not approval of either.",
+        input_schema: schema(
+            vec![
+                (
+                    "id",
+                    json!({"type": "string", "format": "uuid", "description": "The RFI's id."}),
+                ),
+                ("text", json!({"type": "string", "maxLength": 8000})),
+                ("cost_impact", impact("cost more")),
+                ("schedule_impact", impact("take longer")),
+                airdress_arg(),
+            ],
+            &["id", "text"],
         ),
         read_only: false,
         destructive: false,
@@ -1604,14 +1639,28 @@ mod tests {
             .filter(|t| t.slice == Slice::Work)
             .collect();
         let names: Vec<_> = work.iter().map(|t| t.name).collect();
-        assert_eq!(names, ["work_list", "work_get", "work_draft"]);
+        assert_eq!(
+            names,
+            ["work_list", "work_get", "work_draft", "work_answer_draft"]
+        );
         for t in &work {
             assert!(!t.destructive, "{}", t.name);
-            assert!(t.read_only || t.name == "work_draft", "{} writes", t.name);
-            for verb in ["create", "assign", "answer", "close", "status"] {
+            // The only writes are offers of a draft, and say they are not
+            // the thing itself.
+            if !t.read_only {
+                assert!(t.name.ends_with("_draft"), "{} writes", t.name);
+                assert!(t.description.contains("NOT"), "{}", t.name);
+                continue;
+            }
+            for verb in ["create", "assign", "answer", "close", "cancel", "status"] {
                 assert!(!t.name.contains(verb), "{} reads as a write verb", t.name);
             }
         }
-        assert!(work[2].description.contains("NOT created"));
+        // Nothing in the whole catalogue makes, moves or answers work.
+        for t in all() {
+            if t.slice != Slice::Work {
+                assert!(!t.name.starts_with("work_"), "{}", t.name);
+            }
+        }
     }
 }
