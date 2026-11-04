@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.30](https://github.com/airdress-co/airdress-cli/compare/v0.1.29...v0.1.30) - 2026-11-04
+
+### Added
+
+- *(work)* Airdress work — tasks and RFIs from the command line (SPEC-182 182-B.7)
+- *(mcp)* Work_list, work_get and work_draft (SPEC-182 182-D.2)
+- *(mcp)* Work_answer_draft, an RFI answer the person gives themselves (SPEC-182 182-D.2)
+
+### Fixed
+
+- *(deps)* Pulldown-cmark 0.13.6 (RUSTSEC-2026-0433) and async-executor 1.14.1 (yanked)
+- *(agent)* Airdress-mls v0.7.0, revocation asked per person and device
+
+### Changed
+
+- *(scripts)* Use [[ ]] for tests in the bash scripts
+
+### Documentation
+
+- *(third-party)* Airdress-mls v0.7.1
+
+### Build and release
+
+- Pin every action to a commit SHA and verify the nfpm download
+- Coverage and a SonarQube Cloud scan in the Unit Tests job
+- *(sonar)* Turn off the analyser's own clippy run
+- *(sonar)* US spelling in sonar-project.properties (cspell)
+- *(deps)* Airdress-mls v0.7.1
+
+### Tests
+
+- *(mcp)* The work tools' logic as pure functions, with unit tests
+- *(mcp)* The work tools' HTTP call, against a canned operator
+- *(mcp)* Work_answer_draft's operator call, against a canned operator (SPEC-182 182-D.2)
+
 ## [0.1.29](https://github.com/airdress-co/airdress-cli/compare/v0.1.28...v0.1.29) - 2026-10-31
 
 ### Documentation
