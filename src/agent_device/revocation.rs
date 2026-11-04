@@ -18,15 +18,13 @@
 //! 404 member_not_found, 429, 503 revocation_unavailable -> refuse
 //! ```
 //!
-//! **Which airdress.** The engine's lookup carries only the device id
-//! (`RevocationLookup::device_status`, airdress-mls up to 0.4.0). Its check 2
-//! asks the root-key lookup for the credential's `airdress` immediately
-//! before check 5, synchronously, on the same thread. The root-key lookup
-//! calls [`note_subject`], and the next [`OperatorRevocation`] answer on
-//! that thread consumes it. A lookup with no subject goes to this device's
-//! own operator, which refuses a foreign device: the binding can only fail
-//! closed. The clean form is an airdress-aware lookup in airdress-mls
-//! (SPEC-061 task 061-PR.3).
+//! **Which airdress.** The engine asks with the leaf's pin subject and its
+//! device id (`RevocationLookup::device_status(subject, device_id)`,
+//! airdress-mls 0.7.0): the subject is the bare airdress for an owner's
+//! device and `airdress ‖ 0x1F ‖ person_id` for another person's. The
+//! route is asked of the airdress before the separator; answers are
+//! cached per (subject, device id), because a device id is unique only
+//! under one pin subject.
 //!
 //! `kind` is `device`, `agent_device` or `operator_agent`; any other kind,
 //! a body naming another device, a transport error or any other status is
@@ -41,12 +39,11 @@
 //! neither blocks the caller's runtime on itself nor shares a connection
 //! pool across runtimes.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use airdress_mls::credential::{DeviceStatus, RevocationLookup};
+use airdress_mls::credential::{DeviceStatus, RevocationLookup, IDENTITY_SEPARATOR};
 use serde_json::Value;
 
 use crate::redact::Redacted;
@@ -67,21 +64,6 @@ pub type Answer = (u16, Value);
 /// with no credential).
 pub type Ask = dyn Fn(Option<&str>, &str) -> anyhow::Result<Answer> + Send + Sync;
 
-thread_local! {
-    /// The airdress check 2 last asked about on this thread.
-    static SUBJECT: RefCell<Option<String>> = const { RefCell::new(None) };
-}
-
-/// Check 2 is about to be followed by check 5 for a member of `airdress`,
-/// on this thread: called from the engine's root-key lookup.
-pub fn note_subject(airdress: &str) {
-    SUBJECT.with(|s| *s.borrow_mut() = Some(airdress.to_owned()));
-}
-
-fn take_subject() -> Option<String> {
-    SUBJECT.with(|s| s.borrow_mut().take())
-}
-
 /// What one answer means for the verifier: `Some(Active)` admits,
 /// `Some(Revoked)` and `None` refuse.
 pub fn status_of(device_id: &str, (status, body): &Answer) -> Option<DeviceStatus> {
@@ -101,11 +83,11 @@ pub fn status_of(device_id: &str, (status, body): &Answer) -> Option<DeviceStatu
 }
 
 /// The lookup the engine holds: the answer of the member's own airdress's
-/// operator, live answers cached for [`LIVE_FOR`] per (airdress, device).
+/// operator, live answers cached for [`LIVE_FOR`] per (pin subject, device).
 pub struct OperatorRevocation {
     own_airdress: String,
     ask: Box<Ask>,
-    /// Keyed by (peer airdress, or empty for this one; device id).
+    /// Keyed by (pin subject, airdress lowercased; device id).
     live: Mutex<HashMap<(String, String), Instant>>,
     live_for: Duration,
 }
@@ -144,24 +126,48 @@ impl OperatorRevocation {
         ))
     }
 
+    /// Forget every live answer, so the next question about any member is
+    /// asked of its operator. Called when an envelope was left for a
+    /// replay: a commit refused because this device did not yet see a
+    /// member as revoked is judged again against fresh answers.
+    pub fn forget_live(&self) {
+        if let Ok(mut live) = self.live.lock() {
+            live.clear();
+        }
+    }
+
     /// The airdress to ask, `None` for this device's own operator: this
-    /// airdress and the `.local` lanes are the own operator's.
-    fn peer_of(&self, subject: Option<String>) -> Option<String> {
-        let a = subject?.to_ascii_lowercase();
-        // `a` is lowercased above, so a plain suffix test is the
-        // case-insensitive one.
-        if a == self.own_airdress || a.rsplit('.').next() == Some("local") {
+    /// airdress and the `.local` lanes are the own operator's. `airdress`
+    /// is lowercased.
+    fn peer_of(&self, airdress: &str) -> Option<String> {
+        if airdress == self.own_airdress || airdress.rsplit('.').next() == Some("local") {
             None
         } else {
-            Some(a)
+            Some(airdress.to_owned())
         }
     }
 }
 
+/// A pin subject's airdress (lowercased) and the whole subject with that
+/// airdress lowercased: the cache key's first half.
+fn split_subject(subject: &str) -> (String, String) {
+    let sep = char::from(IDENTITY_SEPARATOR);
+    let (airdress, rest) = match subject.split_once(sep) {
+        Some((a, r)) => (a.to_ascii_lowercase(), Some(r)),
+        None => (subject.to_ascii_lowercase(), None),
+    };
+    let key = match rest {
+        Some(r) => format!("{airdress}{sep}{r}"),
+        None => airdress.clone(),
+    };
+    (airdress, key)
+}
+
 impl RevocationLookup for OperatorRevocation {
-    fn device_status(&self, device_id: &str) -> Option<DeviceStatus> {
-        let peer = self.peer_of(take_subject());
-        let key = (peer.clone().unwrap_or_default(), device_id.to_owned());
+    fn device_status(&self, subject: &str, device_id: &str) -> Option<DeviceStatus> {
+        let (airdress, subject_key) = split_subject(subject);
+        let peer = self.peer_of(&airdress);
+        let key = (subject_key, device_id.to_owned());
         if let Ok(live) = self.live.lock() {
             if live
                 .get(&key)
@@ -271,7 +277,10 @@ mod tests {
             json!({"device_id": "d1", "revoked": true,
                    "revoked_at": "2026-10-08T00:00:00Z", "kind": "device"}),
         ));
-        assert_eq!(l.device_status("d1"), Some(DeviceStatus::Revoked));
+        assert_eq!(
+            l.device_status("me.test", "d1"),
+            Some(DeviceStatus::Revoked)
+        );
     }
 
     #[test]
@@ -282,21 +291,25 @@ mod tests {
             (503, json!({"error": {"code": "revocation_unavailable"}})),
         ] {
             let (l, _) = counting(answer);
-            assert_eq!(l.device_status("d1"), None);
+            assert_eq!(l.device_status("me.test", "d1"), None);
         }
         let failing = OperatorRevocation::new(
             "me.test",
             Box::new(|_, _| anyhow::bail!("offline")),
             LIVE_FOR,
         );
-        assert_eq!(failing.device_status("d1"), None);
+        assert_eq!(failing.device_status("me.test", "d1"), None);
     }
 
     #[test]
     fn a_live_device_and_the_operator_agent_pass() {
         for kind in ["device", "agent_device", "operator_agent"] {
             let (l, _) = counting(live(kind));
-            assert_eq!(l.device_status("d1"), Some(DeviceStatus::Active), "{kind}");
+            assert_eq!(
+                l.device_status("me.test", "d1"),
+                Some(DeviceStatus::Active),
+                "{kind}"
+            );
         }
     }
 
@@ -306,23 +319,32 @@ mod tests {
             200,
             json!({"device_id": "d2", "revoked": false, "kind": "device"}),
         ));
-        assert_eq!(l.device_status("d1"), None);
+        assert_eq!(l.device_status("me.test", "d1"), None);
         let (l, _) = counting(live("stranger"));
-        assert_eq!(l.device_status("d1"), None);
+        assert_eq!(l.device_status("me.test", "d1"), None);
         let (l, _) = counting((200, json!({"device_id": "d1", "kind": "device"})));
-        assert_eq!(l.device_status("d1"), None);
+        assert_eq!(l.device_status("me.test", "d1"), None);
     }
 
     #[test]
     fn only_a_live_answer_is_cached() {
         let (l, asked) = counting(live("device"));
-        l.device_status("d1");
-        l.device_status("d1");
+        l.device_status("me.test", "d1");
+        l.device_status("me.test", "d1");
         assert_eq!(asked.load(Ordering::SeqCst), 1);
 
         let (l, asked) = counting((503, Value::Null));
-        l.device_status("d1");
-        l.device_status("d1");
+        l.device_status("me.test", "d1");
+        l.device_status("me.test", "d1");
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn forgetting_asks_again() {
+        let (l, asked) = counting(live("device"));
+        l.device_status("me.test", "d1");
+        l.forget_live();
+        l.device_status("me.test", "d1");
         assert_eq!(asked.load(Ordering::SeqCst), 2);
     }
 
@@ -338,8 +360,8 @@ mod tests {
             }),
             Duration::ZERO,
         );
-        l.device_status("d1");
-        l.device_status("d1");
+        l.device_status("me.test", "d1");
+        l.device_status("me.test", "d1");
         assert_eq!(asked.load(Ordering::SeqCst), 2);
     }
 
@@ -371,32 +393,27 @@ mod tests {
     #[test]
     fn a_member_of_another_airdress_is_asked_of_that_airdress() {
         let (l, asked) = routed();
-        note_subject("Peer.test");
-        assert_eq!(l.device_status("d1"), Some(DeviceStatus::Active));
+        assert_eq!(
+            l.device_status("Peer.test", "d1"),
+            Some(DeviceStatus::Active)
+        );
         assert_eq!(*asked.lock().unwrap(), vec![Some("peer.test".to_owned())]);
     }
 
     #[test]
-    fn this_airdress_a_local_lane_and_no_subject_go_to_the_own_operator() {
+    fn a_person_of_another_airdress_is_asked_of_that_airdress() {
         let (l, asked) = routed();
-        note_subject("ME.test");
-        l.device_status("d1");
-        note_subject("operator.local");
-        l.device_status("d2");
-        l.device_status("d3");
-        assert_eq!(*asked.lock().unwrap(), vec![None, None, None]);
+        l.device_status("peer.test\u{1f}person-1", "d1");
+        assert_eq!(*asked.lock().unwrap(), vec![Some("peer.test".to_owned())]);
     }
 
     #[test]
-    fn the_subject_is_consumed_by_one_lookup() {
+    fn this_airdress_its_people_and_a_local_lane_go_to_the_own_operator() {
         let (l, asked) = routed();
-        note_subject("peer.test");
-        l.device_status("d1");
-        l.device_status("d2");
-        assert_eq!(
-            *asked.lock().unwrap(),
-            vec![Some("peer.test".to_owned()), None]
-        );
+        l.device_status("ME.test", "d1");
+        l.device_status("me.test\u{1f}person-1", "d2");
+        l.device_status("operator.local", "d3");
+        assert_eq!(*asked.lock().unwrap(), vec![None, None, None]);
     }
 
     #[test]
@@ -412,24 +429,30 @@ mod tests {
             }),
             LIVE_FOR,
         );
-        note_subject("peer.test");
-        assert_eq!(l.device_status("d1"), Some(DeviceStatus::Active));
-        note_subject("other.test");
-        assert_eq!(l.device_status("d1"), None);
-        assert_eq!(l.device_status("d1"), None, "no subject: the own operator");
+        assert_eq!(
+            l.device_status("peer.test", "d1"),
+            Some(DeviceStatus::Active)
+        );
+        assert_eq!(l.device_status("other.test", "d1"), None);
+        assert_eq!(l.device_status("me.test", "d1"), None);
     }
 
     #[test]
-    fn the_subject_is_per_thread() {
+    fn a_live_answer_for_one_person_does_not_admit_the_id_for_another() {
         let (l, asked) = routed();
-        note_subject("peer.test");
-        std::thread::scope(|s| {
-            s.spawn(|| l.device_status("elsewhere"));
-        });
-        l.device_status("d1");
-        assert_eq!(
-            *asked.lock().unwrap(),
-            vec![None, Some("peer.test".to_owned())]
-        );
+        l.device_status("me.test\u{1f}person-1", "d1");
+        l.device_status("me.test\u{1f}person-1", "d1");
+        assert_eq!(asked.lock().unwrap().len(), 1, "cached for the pair");
+        l.device_status("me.test\u{1f}person-2", "d1");
+        l.device_status("me.test", "d1");
+        assert_eq!(asked.lock().unwrap().len(), 3, "not for another subject");
+    }
+
+    #[test]
+    fn the_subject_s_airdress_is_case_insensitive_in_the_cache() {
+        let (l, asked) = routed();
+        l.device_status("Peer.Test", "d1");
+        l.device_status("peer.test", "d1");
+        assert_eq!(asked.lock().unwrap().len(), 1);
     }
 }

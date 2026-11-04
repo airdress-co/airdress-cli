@@ -313,6 +313,9 @@ pub struct Chat {
     client: Mutex<Option<Client>>,
     messages: Mutex<Option<ChatStore>>,
     roots: Roots,
+    /// The engine's revocation lookup, kept to drop its live answers when
+    /// an envelope is left for a replay.
+    revocation: std::sync::Mutex<Option<Arc<super::revocation::OperatorRevocation>>>,
     own_lane: Mutex<Option<String>>,
     conversations: Mutex<Vec<Conversation>>,
     arrived: Notify,
@@ -368,6 +371,7 @@ impl Chat {
             client: Mutex::new(None),
             messages: Mutex::new(None),
             roots: Arc::default(),
+            revocation: std::sync::Mutex::default(),
             own_lane: Mutex::new(None),
             conversations: Mutex::new(Vec::new()),
             arrived: Notify::new(),
@@ -392,21 +396,26 @@ impl Chat {
         engine.set_v2_cutover();
         // Each member is asked of its own airdress's operator (owner
         // decision (a), 2026-10-08): this one with the bearer, any other at
-        // its own name with no credential.
-        engine.set_revocation_lookup(super::revocation::OperatorRevocation::of_operator(
+        // its own name with no credential. The engine names the leaf's pin
+        // subject with its device id, and the answer is kept per pair.
+        let revocation = super::revocation::OperatorRevocation::of_operator(
             &creds.operator,
             &creds.airdress,
             creds.token.clone(),
-        ));
+        );
+        engine.set_revocation_lookup(Arc::clone(&revocation) as _);
+        *self
+            .revocation
+            .lock()
+            .map_err(|_| anyhow!("revocation poisoned"))? = Some(revocation);
         self.roots
             .write()
             .map_err(|_| anyhow!("roots poisoned"))?
             .insert(creds.airdress.clone(), creds.root_public);
         let roots = Arc::clone(&self.roots);
+        // Past the cutover a leaf is also refused until a root-key lookup
+        // is registered (airdress-mls 0.7.0); this is it.
         engine.set_root_key_lookup(Arc::new(move |airdress: &str| {
-            // Check 2 names the member's airdress right before check 5 asks
-            // about its device, on this thread: say whose device it is.
-            super::revocation::note_subject(airdress);
             roots.read().ok().and_then(|r| r.get(airdress).copied())
         }));
         let dir = self.chat_dir();
@@ -753,6 +762,15 @@ impl Chat {
             }
             Event::Failed { reason, retryable } => {
                 tracing::warn!(%reason, retryable, "agent chat: an envelope did not process");
+                // Left unacknowledged for a replay (a state write that
+                // failed, or a commit removing a device this one did not
+                // yet hold revoked): judge the replay against fresh
+                // revocation answers rather than the cached ones.
+                if *retryable {
+                    if let Ok(Some(r)) = self.revocation.lock().as_deref() {
+                        r.forget_live();
+                    }
+                }
             }
             Event::Membership { .. } | Event::Ignored { .. } => {}
         }

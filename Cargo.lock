@@ -168,8 +168,8 @@ dependencies = [
 
 [[package]]
 name = "airdress-mls"
-version = "0.6.1"
-source = "git+https://github.com/airdress-co/airdress-mls?tag=v0.6.1#3712b4aff6cb310a8ba853d1c75ef5759fc89ba7"
+version = "0.7.0"
+source = "git+https://github.com/airdress-co/airdress-mls?tag=v0.7.0#60481a19f56219a119e82c304c02fcc4ee207710"
 dependencies = [
  "base64",
  "chacha20 0.10.2",
@@ -185,13 +185,12 @@ dependencies = [
 
 [[package]]
 name = "airdress-mls-client"
-version = "0.6.1"
-source = "git+https://github.com/airdress-co/airdress-mls?tag=v0.6.1#3712b4aff6cb310a8ba853d1c75ef5759fc89ba7"
+version = "0.7.0"
+source = "git+https://github.com/airdress-co/airdress-mls?tag=v0.7.0#60481a19f56219a119e82c304c02fcc4ee207710"
 dependencies = [
  "airdress-mls",
  "base64",
  "chacha20poly1305 0.10.1",
- "mls-rs",
  "serde",
  "serde_json",
  "sha2 0.10.9",

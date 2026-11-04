@@ -89,8 +89,19 @@ fn the_operators_agent() -> Agent {
     engine.set_v2_cutover();
     // Past the cutover nothing verifies without a revocation lookup; the
     // operator answers its own from its tables.
-    engine.set_revocation_lookup(std::sync::Arc::new(|_: &str| {
+    engine.set_revocation_lookup(std::sync::Arc::new(|_: &str, _: &str| {
         Some(airdress_mls::credential::DeviceStatus::Active)
+    }));
+    // And without a root-key lookup (airdress-mls 0.7.0): the operator
+    // knows the root its own airdress pinned, the one the mock serves.
+    let device_root = SigningKey::from_bytes(&[0x51; 32])
+        .verifying_key()
+        .to_bytes();
+    let own_root = root.verifying_key().to_bytes();
+    engine.set_root_key_lookup(std::sync::Arc::new(move |airdress: &str| match airdress {
+        AIRDRESS => Some(device_root),
+        AGENT_LANE_TARGET => Some(own_root),
+        _ => None,
     }));
     let client = Client::open(engine, &dir.path().join("client"), &[0x63; 32]).unwrap();
     Agent {
