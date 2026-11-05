@@ -89,7 +89,11 @@ for image in "${images[@]}"; do
       fi
       rpm=-
       if command -v rpm >/dev/null 2>&1; then
-        rpm -i /dist/airdress-[0-9]*.rpm /dist/airdress-agent-[0-9]*.rpm
+        # These are CI builds, unsigned; the published packages are signed.
+        # rpm 6 (fedora:latest) refuses an unsigned package by default, so
+        # check the digests and not a signature.
+        rpm -i --define "_pkgverify_level digest" \
+          /dist/airdress-[0-9]*.rpm /dist/airdress-agent-[0-9]*.rpm
         check airdress "$(airdress --version)"
         check airdress-agent "$(airdress-agent --version)"
         rpm=ok
