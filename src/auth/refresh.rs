@@ -99,6 +99,10 @@ pub(crate) async fn ensure_fresh_with<R: TokenRefresher>(
     profile_name: &str,
     refresher: &R,
 ) -> Result<Freshness> {
+    // The identity provider rotates its refresh token too, so the read,
+    // the refresh and the write-back happen under the profile's lock,
+    // like the hub's (AIR-173).
+    let _lock = storage::ProfileLock::acquire(paths, profile_name).await?;
     let profile = storage::read_profile(paths, profile_name)?;
 
     let (refresh_token, expires_at, id_token_claims, id_token) = match &profile.auth {

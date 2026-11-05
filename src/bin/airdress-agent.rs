@@ -77,7 +77,11 @@ async fn main() -> ExitCode {
         Err(e) => return cli_setup::usage(&e, cli_setup::json_requested(&argv), "airdress-agent"),
     };
     let json = matches!(cli.output, OutputFormat::Json);
-    match run(cli, json).await {
+    let result = run(cli, json).await;
+    // A refresh the hub has answered still has to reach the profile file
+    // before the runtime goes (AIR-173).
+    airdress::auth::tokens::settle(airdress::auth::tokens::SETTLE_BOUND).await;
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => cli_setup::report(&e, json),
     }

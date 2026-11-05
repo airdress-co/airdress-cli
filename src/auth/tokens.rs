@@ -14,6 +14,16 @@
 //! rotated it meanwhile), and writes the new refresh token back before the
 //! lock is released.
 //!
+//! That write must happen even when whoever asked for the token stops
+//! waiting (AIR-173). The hub rotates the moment it answers; a caller
+//! dropped between that answer and the write (a cancelled MCP loop, a
+//! process ending) loses the only copy of the new refresh token, and the
+//! next refresh presents the spent one, which ends the grant. So the real
+//! path runs as its own task ([`shield`]) that finishes without its
+//! caller, every binary waits for those tasks before it exits
+//! ([`settle`]), and a call that got no answer is asked again at once,
+//! inside the hub's 30 s grace, which hands back the successor.
+//!
 //! A legacy profile (schema v2, ZITADEL direct, [`AuthConfig::DeviceFlow`])
 //! keeps working as before: its one token is what every caller gets, until
 //! the person signs in again. That fallback is never silent: the first time
@@ -29,7 +39,8 @@
 //! before and says so.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use anyhow::{anyhow, bail, Result};
 use chrono::{DateTime, Duration, Utc};
@@ -161,7 +172,89 @@ pub async fn access_token(
     profile_name: &str,
     audience: Audience<'_>,
 ) -> Result<Redacted<String>> {
-    access_token_moving(paths, profile_name, audience, &HubRefresher, &SignInAgain).await
+    let paths = paths.clone();
+    let profile_name = profile_name.to_owned();
+    let operator = match audience {
+        Audience::Hub => None,
+        Audience::Operator(op) => Some(op.to_owned()),
+    };
+    shield(async move {
+        let audience = operator
+            .as_deref()
+            .map_or(Audience::Hub, Audience::Operator);
+        access_token_moving(&paths, &profile_name, audience, &HubRefresher, &SignInAgain).await
+    })
+    .await?
+}
+
+/// Refreshes started by this process and not finished yet.
+static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+/// Woken each time one finishes.
+static FINISHED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Counts one shielded task for as long as it lives, including when the
+/// runtime drops it.
+struct InFlight;
+
+impl InFlight {
+    fn start() -> Self {
+        IN_FLIGHT.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
+        FINISHED.notify_waiters();
+    }
+}
+
+/// Run `fut` as its own task and wait for it. Dropping the returned
+/// future stops the waiting, never the task: a refresh the hub has
+/// already answered still reaches the profile file.
+pub(crate) async fn shield<T: Send + 'static>(
+    fut: impl Future<Output = T> + Send + 'static,
+) -> Result<T> {
+    let in_flight = InFlight::start();
+    tokio::spawn(async move {
+        let _in_flight = in_flight;
+        fut.await
+    })
+    .await
+    .map_err(|e| anyhow!("the token refresh task failed: {e}"))
+}
+
+/// How long a binary waits at exit for [`shield`]ed refreshes.
+///
+/// Long enough for a refresh whose answer is on its way (they take well
+/// under a second); short enough that a process asked to stop still does.
+pub const SETTLE_BOUND: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Wait, within `bound`, until no [`shield`]ed refresh is running. Every
+/// binary calls this before it returns from `main`: the runtime drops
+/// unfinished tasks when it shuts down, which is exactly the lost write
+/// [`shield`] exists to prevent. Returns whether they all finished.
+pub async fn settle(bound: std::time::Duration) -> bool {
+    let all_done = async {
+        loop {
+            let finished = FINISHED.notified();
+            tokio::pin!(finished);
+            finished.as_mut().enable();
+            if IN_FLIGHT.load(Ordering::SeqCst) == 0 {
+                return;
+            }
+            finished.await;
+        }
+    };
+    let settled = tokio::time::timeout(bound, all_done).await.is_ok();
+    if !settled {
+        tracing::warn!(
+            left = IN_FLIGHT.load(Ordering::SeqCst),
+            "a token refresh was still running at exit; its sign-in may need `airdress auth login`"
+        );
+    }
+    settled
 }
 
 /// Moving a legacy profile to the hub's sign-in, abstracted for tests.
@@ -324,7 +417,10 @@ async fn refresh_resource<R: ResourceRefresher>(
     if refresh_token.expose().is_empty() {
         return Err(Failure::auth(
             "not_signed_in",
-            format!("profile '{profile_name}' holds no refresh token — run `airdress auth login`"),
+            format!(
+                "profile '{profile_name}' holds no refresh token — run \
+                 `airdress auth login --profile {profile_name}`"
+            ),
         )
         .into());
     }
@@ -334,9 +430,33 @@ async fn refresh_resource<R: ResourceRefresher>(
         resource,
         "requesting an access token"
     );
-    let resp = refresher
+    let resp = match refresher
         .refresh(token_endpoint, client_id, refresh_token.expose(), resource)
-        .await?;
+        .await
+    {
+        Ok(resp) => resp,
+        // No answer (a timeout, a dropped connection, a body that did not
+        // parse). The hub may have rotated anyway, and then the token on
+        // file is spent. Asked again now, inside the hub's 30 s grace, it
+        // hands back the successor; if it never rotated, this is simply
+        // the refresh. Later, the same token would end the grant.
+        Err(first) => {
+            tracing::warn!(
+                profile = profile_name,
+                resource,
+                error = %format!("{first:#}"),
+                "no answer to a token refresh; asking again at once"
+            );
+            refresher
+                .refresh(token_endpoint, client_id, refresh_token.expose(), resource)
+                .await
+                .map_err(|again| {
+                    again.context(format!(
+                        "renewing profile '{profile_name}' got no answer twice (first: {first:#})"
+                    ))
+                })?
+        }
+    };
     if let Some(err) = resp.error.as_deref() {
         let desc = resp.error_description.as_deref().unwrap_or("");
         let detail = if desc.is_empty() {
@@ -352,7 +472,10 @@ async fn refresh_resource<R: ResourceRefresher>(
         }
         return Err(Failure::auth(
             "sign_in_expired",
-            format!("the hub refused to renew this sign-in ({detail}): run `airdress auth login`"),
+            format!(
+                "the hub refused to renew profile '{profile_name}' ({detail}): run \
+                 `airdress auth login --profile {profile_name}`"
+            ),
         )
         .into());
     }
@@ -619,7 +742,12 @@ mod tests {
         storage::write_profile(paths, "p", &hub_profile("rt_stale", &[])).unwrap();
         let hub = FakeHub::new("rt_other");
         let err = block_on(access_token_with(paths, "p", Audience::Hub, &hub)).unwrap_err();
-        assert!(err.to_string().contains("airdress auth login"), "{err}");
+        // Named: the person may have several profiles, and the plugin's is
+        // not the active one (AIR-173).
+        assert!(
+            err.to_string().contains("airdress auth login --profile p"),
+            "{err}"
+        );
         assert_eq!(stored_refresh(paths, "p"), "rt_stale");
     }
 
@@ -782,5 +910,135 @@ mod tests {
         let hub = hub_profile("rt", &[]).auth.unwrap();
         assert!(legacy_notice("qa", Some(&hub)).is_none());
         assert!(legacy_notice("qa", None).is_none());
+    }
+
+    /// A hub that rotates, then takes `delay` to deliver its answer: the
+    /// window in which a caller that stops waiting used to lose the new
+    /// refresh token (AIR-173).
+    struct AnswersLate {
+        hub: FakeHub,
+        delay: std::time::Duration,
+    }
+
+    impl ResourceRefresher for AnswersLate {
+        async fn refresh(&self, e: &str, c: &str, rt: &str, r: &str) -> Result<RefreshResponse> {
+            let answer = self.hub.refresh(e, c, rt, r).await;
+            tokio::time::sleep(self.delay).await;
+            answer
+        }
+    }
+
+    /// A hub whose first answer never arrives although it rotated, and
+    /// which, like the real one, hands the successor back once to the
+    /// previous token presented again at once (the 30 s grace).
+    struct LosesFirstAnswer {
+        hub: FakeHub,
+        graced: std::sync::Mutex<Option<String>>,
+        lost: AtomicBool,
+    }
+
+    impl ResourceRefresher for LosesFirstAnswer {
+        async fn refresh(&self, e: &str, c: &str, rt: &str, r: &str) -> Result<RefreshResponse> {
+            if self.graced.lock().unwrap().as_deref() == Some(rt) {
+                *self.graced.lock().unwrap() = None;
+                let successor = "rt_rekeyed".to_owned();
+                *self.hub.current.lock().unwrap() = successor.clone();
+                return Ok(RefreshResponse {
+                    access_token: Some(format!("at[{r}]#graced").into()),
+                    refresh_token: Some(successor.into()),
+                    expires_in: Some(900),
+                    ..Default::default()
+                });
+            }
+            let answer = self.hub.refresh(e, c, rt, r).await;
+            if !self.lost.swap(true, Ordering::SeqCst) {
+                *self.graced.lock().unwrap() = Some(rt.to_owned());
+                return Err(anyhow!("operation timed out"));
+            }
+            answer
+        }
+    }
+
+    fn multi_thread() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+
+    /// The incident itself, as a test: a caller dropped after the hub
+    /// rotated and before the write leaves the spent token on file, and
+    /// the next refresh ends the grant. This is what [`shield`] prevents.
+    #[test]
+    fn a_caller_dropped_mid_refresh_without_the_shield_leaves_a_spent_token() {
+        let (_home, paths) = storage::temp_paths();
+        storage::write_profile(&paths, "p", &hub_profile("rt_0", &[])).unwrap();
+        let hub = AnswersLate {
+            hub: FakeHub::new("rt_0"),
+            delay: std::time::Duration::from_millis(300),
+        };
+        multi_thread().block_on(async {
+            let call = access_token_with(&paths, "p", Audience::Hub, &hub);
+            let waited = tokio::time::timeout(std::time::Duration::from_millis(50), call).await;
+            assert!(waited.is_err());
+        });
+        assert_eq!(stored_refresh(&paths, "p"), "rt_0");
+        assert_eq!(*hub.hub.current.lock().unwrap(), "rt_1");
+        let err = block_on(access_token_with(&paths, "p", Audience::Hub, &hub.hub)).unwrap_err();
+        assert!(err.to_string().contains("invalid_grant"), "{err}");
+        assert!(*hub.hub.revoked.lock().unwrap());
+    }
+
+    #[test]
+    fn a_shielded_refresh_is_stored_when_its_caller_stops_waiting() {
+        let (_home, paths) = storage::temp_paths();
+        storage::write_profile(&paths, "p", &hub_profile("rt_0", &[])).unwrap();
+        let hub = std::sync::Arc::new(AnswersLate {
+            hub: FakeHub::new("rt_0"),
+            delay: std::time::Duration::from_millis(300),
+        });
+        multi_thread().block_on(async {
+            let (p, h) = (paths.clone(), std::sync::Arc::clone(&hub));
+            let call = shield(async move { access_token_with(&p, "p", Audience::Hub, &*h).await });
+            let waited = tokio::time::timeout(std::time::Duration::from_millis(50), call).await;
+            assert!(waited.is_err(), "the caller gave up before the answer");
+            assert!(settle(std::time::Duration::from_secs(5)).await);
+        });
+        assert_eq!(stored_refresh(&paths, "p"), "rt_1");
+        // And the next refresh is an ordinary one, not a replay.
+        let fresh = block_on(access_token_with(
+            &paths,
+            "p",
+            Audience::Operator("op.example"),
+            &hub.hub,
+        ))
+        .unwrap();
+        assert_eq!(fresh.expose(), "at[https://op.example/v1]#2");
+        assert!(!*hub.hub.revoked.lock().unwrap());
+    }
+
+    #[test]
+    fn a_refresh_that_got_no_answer_asks_again_at_once_and_keeps_the_grant() {
+        let (_home, paths) = storage::temp_paths();
+        storage::write_profile(&paths, "p", &hub_profile("rt_0", &[])).unwrap();
+        let hub = LosesFirstAnswer {
+            hub: FakeHub::new("rt_0"),
+            graced: std::sync::Mutex::new(None),
+            lost: AtomicBool::new(false),
+        };
+        let token = block_on(access_token_with(&paths, "p", Audience::Hub, &hub)).unwrap();
+        assert_eq!(token.expose(), "at[https://hub.example]#graced");
+        assert_eq!(stored_refresh(&paths, "p"), "rt_rekeyed");
+        assert!(!*hub.hub.revoked.lock().unwrap());
+    }
+
+    #[test]
+    fn settle_returns_at_once_with_nothing_in_flight() {
+        let started = std::time::Instant::now();
+        // Other tests may have a shielded refresh running; none outlives
+        // its own short delay.
+        assert!(block_on(settle(std::time::Duration::from_secs(5))));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 }

@@ -51,5 +51,9 @@ async fn main() -> Result<()> {
     // Where the CLI's files are, decided here once. No home directory is
     // not fatal: the server still answers, and says why a tool cannot.
     let paths = airdress::paths::Paths::from_env().ok();
-    mcp::run(mcp::McpCommands::Serve(Box::new(cli.serve)), paths).await
+    let result = mcp::run(mcp::McpCommands::Serve(Box::new(cli.serve)), paths).await;
+    // A refresh the hub has answered still has to reach the profile file
+    // before the runtime goes (AIR-173).
+    airdress::auth::tokens::settle(airdress::auth::tokens::SETTLE_BOUND).await;
+    result
 }

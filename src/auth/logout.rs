@@ -151,6 +151,13 @@ async fn revoke_hub_grant(endpoint: &str, auth: &AuthConfig) -> Result<()> {
     Ok(())
 }
 
+/// Drop the profile's credential, under its lock, leaving the rest of the
+/// profile as it is on disk now (AIR-173).
+fn forget_credential(paths: &crate::paths::Paths, name: &str) -> Result<()> {
+    storage::update_profile(paths, name, |profile| Ok(profile.auth.take().is_some()))?;
+    Ok(())
+}
+
 pub async fn run(paths: &crate::paths::Paths, profile_name: Option<&str>) -> Result<()> {
     let name = storage::resolve_profile_name(paths, profile_name)?;
     let mut profile = storage::read_profile(paths, &name)?;
@@ -162,7 +169,7 @@ pub async fn run(paths: &crate::paths::Paths, profile_name: Option<&str>) -> Res
 
     if let AuthConfig::Hub { .. } = &auth {
         let result = revoke_hub_grant(&profile.endpoint, &auth).await;
-        storage::write_profile(paths, &name, &profile)?;
+        forget_credential(paths, &name)?;
         ui::ok(format!("logged out of {name}"));
         match result {
             Ok(()) => ui::note(
@@ -179,7 +186,7 @@ pub async fn run(paths: &crate::paths::Paths, profile_name: Option<&str>) -> Res
 
     let AuthConfig::DeviceFlow { id_token, .. } = &auth else {
         // Machine credentials: nothing held at the IdP on our behalf.
-        storage::write_profile(paths, &name, &profile)?;
+        forget_credential(paths, &name)?;
         ui::ok(format!("logged out of {name}"));
         return Ok(());
     };
@@ -222,7 +229,7 @@ pub async fn run(paths: &crate::paths::Paths, profile_name: Option<&str>) -> Res
 
     // Forget locally either way: a token we could not revoke is still
     // better off not sitting on disk.
-    storage::write_profile(paths, &name, &profile)?;
+    forget_credential(paths, &name)?;
     ui::ok(format!("logged out of {name}"));
     if session_ended {
         ui::note("ended the sign-in session this login created at the identity provider");

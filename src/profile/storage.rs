@@ -201,31 +201,60 @@ pub struct ProfileLock {
 impl ProfileLock {
     /// Block (on a blocking thread) until the lock is ours.
     pub async fn acquire(paths: &Paths, name: &str) -> Result<Self> {
+        let paths = paths.clone();
+        let name = name.to_owned();
+        tokio::task::spawn_blocking(move || Self::acquire_blocking(&paths, &name))
+            .await
+            .context("profile lock task")?
+    }
+
+    /// Block this thread until the lock is ours. For the synchronous
+    /// writers; async code uses [`ProfileLock::acquire`].
+    pub fn acquire_blocking(paths: &Paths, name: &str) -> Result<Self> {
         ensure_dirs(paths)?;
         let path = paths.profiles_dir().join(format!("{name}.lock"));
-        tokio::task::spawn_blocking(move || -> Result<Self> {
-            let file = fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .open(&path)
-                .with_context(|| format!("failed to open {}", path.display()))?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::io::AsRawFd;
-                // SAFETY: flock on a descriptor this function owns.
-                let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
-                if rc != 0 {
-                    return Err(std::io::Error::last_os_error())
-                        .with_context(|| format!("failed to lock {}", path.display()));
-                }
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .with_context(|| format!("failed to open {}", path.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            // SAFETY: flock on a descriptor this function owns.
+            let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+            if rc != 0 {
+                return Err(std::io::Error::last_os_error())
+                    .with_context(|| format!("failed to lock {}", path.display()));
             }
-            Ok(Self { file })
-        })
-        .await
-        .context("profile lock task")?
+        }
+        Ok(Self { file })
     }
+}
+
+/// Change one profile in place: under its [`ProfileLock`], read it as it
+/// is now, apply `change`, write it back.
+///
+/// Every writer that keeps part of what is on disk goes through here
+/// (AIR-173). A writer that read the profile earlier and wrote its copy
+/// back later would put a spent refresh token over the one a refresh in
+/// another process had just stored, and the next refresh would present
+/// the spent one: the hub revokes the whole grant for that.
+///
+/// `change` returns whether anything changed; `false` writes nothing.
+pub fn update_profile(
+    paths: &Paths,
+    name: &str,
+    change: impl FnOnce(&mut Profile) -> Result<bool>,
+) -> Result<Profile> {
+    let _lock = ProfileLock::acquire_blocking(paths, name)?;
+    let mut profile = read_profile(paths, name)?;
+    if change(&mut profile)? {
+        write_profile(paths, name, &profile)?;
+    }
+    Ok(profile)
 }
 
 pub fn read_active_profile(paths: &Paths) -> Result<Option<String>> {
@@ -340,23 +369,27 @@ pub fn resolve_profile_name(paths: &Paths, explicit: Option<&str>) -> Result<Str
 /// silently upgrades v1 files to v2 on the write-back. Callers must
 /// validate the airdress name belongs to the user before calling this.
 pub fn set_active_airdress(paths: &Paths, profile_name: &str, airdress_name: &str) -> Result<()> {
-    let mut profile = read_profile(paths, profile_name)?;
-    profile.schema_version = SCHEMA_VERSION;
-    profile.active_airdress = Some(airdress_name.to_string());
-    write_profile(paths, profile_name, &profile)
+    update_profile(paths, profile_name, |profile| {
+        profile.schema_version = profile.schema_version.max(SCHEMA_VERSION);
+        profile.active_airdress = Some(airdress_name.to_string());
+        Ok(true)
+    })?;
+    Ok(())
 }
 
 /// SPEC-043 — clear `active_airdress` on the named profile. Idempotent
 /// (no-op if already unset). Used by the resolve-time recovery path
 /// when the hub says the pinned airdress is gone.
 pub fn clear_active_airdress(paths: &Paths, profile_name: &str) -> Result<()> {
-    let mut profile = read_profile(paths, profile_name)?;
-    if profile.active_airdress.is_none() {
-        return Ok(());
-    }
-    profile.schema_version = SCHEMA_VERSION;
-    profile.active_airdress = None;
-    write_profile(paths, profile_name, &profile)
+    update_profile(paths, profile_name, |profile| {
+        if profile.active_airdress.is_none() {
+            return Ok(false);
+        }
+        profile.schema_version = profile.schema_version.max(SCHEMA_VERSION);
+        profile.active_airdress = None;
+        Ok(true)
+    })?;
+    Ok(())
 }
 
 /// A fresh, empty home for one test: its own temporary directory, held
@@ -698,6 +731,41 @@ mod tests {
 
     /// SPEC-043 — set/clear cycle on a v1 file silently upgrades to
     /// v2 on the first mutating write, preserving everything else.
+    /// AIR-173: a writer that keeps part of the profile waits for a
+    /// refresh holding the lock, then applies its change to what the
+    /// refresh wrote, never to a copy read before it.
+    #[test]
+    fn an_update_waits_for_the_lock_and_keeps_what_was_written_under_it() {
+        let (_home, paths) = temp_paths();
+        let before = Profile {
+            schema_version: SCHEMA_VERSION,
+            endpoint: "https://before.example".into(),
+            auth: None,
+            active_airdress: None,
+        };
+        write_profile(&paths, "p", &before).unwrap();
+
+        let held = ProfileLock::acquire_blocking(&paths, "p").unwrap();
+        let writer = {
+            let paths = paths.clone();
+            std::thread::spawn(move || set_active_airdress(&paths, "p", "alice"))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert!(read_profile(&paths, "p").unwrap().active_airdress.is_none());
+        // What a refresh writes while it holds the lock.
+        let refreshed = Profile {
+            endpoint: "https://after.example".into(),
+            ..before
+        };
+        write_profile(&paths, "p", &refreshed).unwrap();
+        drop(held);
+
+        writer.join().unwrap().unwrap();
+        let after = read_profile(&paths, "p").unwrap();
+        assert_eq!(after.endpoint, "https://after.example");
+        assert_eq!(after.active_airdress.as_deref(), Some("alice"));
+    }
+
     #[test]
     fn v1_set_clear_active_airdress_upgrades_to_v2() {
         let (_home, paths) = temp_paths();

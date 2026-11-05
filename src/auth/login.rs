@@ -392,8 +392,21 @@ pub(crate) fn store_hub_tokens(
         }),
         ..profile
     };
-    storage::write_profile(paths, name, &updated)?;
+    store_signed_in(paths, name, updated)?;
     Ok(id_token_claims)
+}
+
+/// Put a finished sign-in's credential and schema onto the profile as it
+/// is on disk now, under its lock. The rest of `signed_in` was read when
+/// the sign-in began, minutes ago perhaps, and is not written back: a
+/// refresh or `airdress use` in between keeps what it wrote (AIR-173).
+fn store_signed_in(paths: &crate::paths::Paths, name: &str, signed_in: Profile) -> Result<()> {
+    storage::update_profile(paths, name, |profile| {
+        profile.schema_version = signed_in.schema_version;
+        profile.auth = signed_in.auth;
+        Ok(true)
+    })?;
+    Ok(())
 }
 
 /// Write what a finished sign-in produced into the profile, and return
@@ -428,7 +441,7 @@ fn store_tokens(
         }),
         ..profile
     };
-    storage::write_profile(paths, name, &updated)?;
+    store_signed_in(paths, name, updated)?;
     Ok(id_token_claims)
 }
 

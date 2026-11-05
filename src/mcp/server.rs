@@ -83,8 +83,18 @@ pub async fn serve(opts: ServeOpts) -> Result<()> {
     }
 
     let mut refreshing = false;
+    let mut stop = stop_signals()?;
     let served = async {
-        while let Some(line) = lines.next_line().await? {
+        loop {
+            // A harness ends a server by closing stdin, or by a signal
+            // (SIGTERM, SIGHUP when its terminal goes). Both take the same
+            // way out below, so a refresh in flight is waited for instead
+            // of dying with the default signal action (AIR-173).
+            let next = tokio::select! {
+                next = lines.next_line() => next?,
+                () = &mut stop => return anyhow::Ok(true),
+            };
+            let Some(line) = next else { break };
             if line.trim().is_empty() {
                 continue;
             }
@@ -149,7 +159,7 @@ pub async fn serve(opts: ServeOpts) -> Result<()> {
                 }));
             }
         }
-        anyhow::Ok(())
+        anyhow::Ok(false)
     }
     .await;
     // The client has gone: stop the loops, release what this session
@@ -158,8 +168,39 @@ pub async fn serve(opts: ServeOpts) -> Result<()> {
     cancel.cancel();
     crate::mcp::bus::shutdown(&session).await;
     let drained = drain(&mut tasks, TASK_DRAIN).await;
+    if matches!(served, Ok(true)) {
+        // Stopped by a signal, stdin still open: tokio reads stdin on a
+        // blocking thread that is still inside `read`, and the runtime
+        // would wait for it forever at shutdown (measured: the process
+        // outlived SIGTERM). So the refreshes are settled here and the
+        // process ends itself.
+        crate::auth::tokens::settle(crate::auth::tokens::SETTLE_BOUND).await;
+        std::process::exit(if drained.is_ok() { 0 } else { 1 });
+    }
     served?;
     drained
+}
+
+/// Resolves on SIGTERM or SIGHUP. Installing the handlers replaces the
+/// default action, which would end the process wherever it stood.
+fn stop_signals() -> Result<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut term = signal(SignalKind::terminate())?;
+        let mut hup = signal(SignalKind::hangup())?;
+        Ok(Box::pin(async move {
+            tokio::select! {
+                _ = term.recv() => {}
+                _ = hup.recv() => {}
+            }
+            tracing::debug!("stop signal received; shutting down");
+        }))
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(Box::pin(std::future::pending()))
+    }
 }
 
 /// Join every task in `tasks` within `bound`, aborting what is left after
