@@ -298,3 +298,4 @@ tlsv
 Qube
 taiki
 analyser
+pkgverify
