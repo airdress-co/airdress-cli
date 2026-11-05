@@ -54,6 +54,15 @@ use crate::redact::Redacted;
 /// Renew a cached token when fewer than this many seconds remain.
 const LEEWAY_SECS: i64 = 60;
 
+/// The longest one refresh request may take, whatever `--timeout` says.
+///
+/// Two attempts must fit inside the hub's 30 s reuse grace
+/// (`REUSE_GRACE`): when the first answer is lost after the hub rotated,
+/// the retry has to arrive while the hub still hands back the successor.
+/// With the general 30 s budget, a first attempt that waited it out would
+/// retry just after the grace closed, and that retry revokes the grant.
+const REFRESH_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Cached tokens for other resources that expired longer ago than this are
 /// dropped when the profile is written, so the file does not grow with
 /// every airdress ever touched.
@@ -154,6 +163,7 @@ impl ResourceRefresher for HubRefresher {
         params.insert("resource", resource);
         let resp = client
             .post(token_endpoint)
+            .timeout(REFRESH_REQUEST_TIMEOUT)
             .form(&params)
             .send()
             .await
