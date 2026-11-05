@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.32](https://github.com/airdress-co/airdress-cli/compare/v0.1.31...v0.1.32) - 2026-11-05
+
+### Fixed
+
+- *(auth)* A refresh the hub answered always reaches the profile (AIR-173)
+- *(auth)* Two refresh attempts fit inside the hub's grace (AIR-173)
+
 ## [0.1.31](https://github.com/airdress-co/airdress-cli/compare/v0.1.30...v0.1.31) - 2026-11-05
 
 ### Fixed
