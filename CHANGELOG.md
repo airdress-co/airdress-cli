@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.31](https://github.com/airdress-co/airdress-cli/compare/v0.1.30...v0.1.31) - 2026-11-05
+
+### Fixed
+
+- *(smoke)* Install the unsigned CI packages on rpm 6
+
+### Other
+
+- *(cspell)* Pkgverify, the rpm macro
+
 ## [0.1.30](https://github.com/airdress-co/airdress-cli/compare/v0.1.29...v0.1.30) - 2026-11-04
 
 ### Added
