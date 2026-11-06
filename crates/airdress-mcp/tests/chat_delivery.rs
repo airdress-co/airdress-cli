@@ -375,7 +375,8 @@ fn message(seq: i64, id: &str, conversation_row: &str, from_self: bool, text: &s
         "seq": seq, "message_id": id, "conversation_id": conversation_row,
         "from": if from_self { "this device" } else { "a.example" },
         "lane": if conversation_row == "c-own" { "own" } else { "assigned" },
-        "from_self": from_self, "text": text, "at": "2026-10-06T00:00:00Z",
+        // Sent now: a message older than an hour is announced, not pushed.
+        "from_self": from_self, "text": text, "at": chrono::Utc::now().to_rfc3339(),
     })
 }
 

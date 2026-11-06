@@ -350,7 +350,7 @@ pub fn notification(m: &Value) -> Value {
 /// A message older than this is not pushed to the session it is for: it
 /// may no longer stand, and a session acts on what it is handed (AIR-174:
 /// told to ask first, a session wrote the file a 65-minute-old request
-/// asked for, and apologised after).
+/// asked for, and apologized after).
 pub const WAITED_TOO_LONG: chrono::Duration = chrono::Duration::hours(1);
 
 /// How long ago `m` was sent, by its `at`.
