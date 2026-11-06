@@ -863,6 +863,98 @@ fn a_named_sessions_conversation_reaches_only_it_and_waits_for_it() {
     bob.stop();
 }
 
+/// A message for a session that waited past the bound is announced, not
+/// pushed (AIR-174: a session handed a 65-minute-old request did it before
+/// asking): from the backlog, and live after a sleep. `chat_read` then
+/// gives it its age.
+#[test]
+fn a_message_that_waited_over_an_hour_is_announced_not_pushed() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("state");
+    let port = spawn_http();
+    let operator_host = format!("127.0.0.1:{port}");
+    profile_store(home.path(), port, &operator_host);
+    let ago = |mins: i64| (chrono::Utc::now() - chrono::Duration::minutes(mins)).to_rfc3339();
+    let mut stale = message(1, "e-stale", "c-bob", false, "create the file");
+    stale["for_session"] = json!("bob");
+    stale["at"] = json!(ago(65));
+    let mut fresh = message(2, "e-fresh", "c-bob", false, "and this one is new");
+    fresh["for_session"] = json!("bob");
+    let host = Arc::new(Mutex::new(Host {
+        backlog: [("bob".to_owned(), vec![stale.clone(), fresh])].into(),
+        ..Host::default()
+    }));
+    spawn_device_host(
+        &airdress::agent_bus::socket::socket_path(
+            &airdress::agent_bus::socket::device_dir(&state, &operator_host),
+            None,
+        ),
+        Arc::clone(&host),
+    );
+    let mut bob = Server::start(
+        home.path(),
+        &state,
+        &operator_host,
+        &["--session-name", "bob"],
+    );
+    let is = |id: &'static str| {
+        move |n: &Value| {
+            n["method"] == "notifications/claude/channel" && n["params"]["meta"]["message_id"] == id
+        }
+    };
+    let waited = |id: &'static str| {
+        move |n: &Value| {
+            n["params"]["meta"]["notice"] == "chat_waited"
+                && n["params"]["meta"]["message_ids"]
+                    .as_str()
+                    .is_some_and(|ids| ids.split(',').any(|i| i == id))
+        }
+    };
+    bob.wait_for("the fresh message", is("e-fresh"));
+    bob.wait_for("the notice for the stale one", waited("e-stale"));
+    let notice = bob
+        .notifications
+        .iter()
+        .find(|n| waited("e-stale")(n))
+        .unwrap();
+    let words = notice["params"]["content"].as_str().unwrap();
+    assert!(
+        !words.contains("create the file"),
+        "the notice carries the words: {words}"
+    );
+    assert!(words.contains("chat_read"), "{words}");
+    assert!(
+        !bob.notifications.iter().any(is("e-stale")),
+        "the stale request was pushed as itself"
+    );
+
+    // Live, after a sleep: no `queued`, but ten hours old, and it names bob.
+    std::thread::sleep(Duration::from_millis(400));
+    {
+        let mut h = host.lock().unwrap();
+        let mut slept = message(3, "e-slept", "c-mine", false, "@bob deploy it");
+        slept["at"] = json!(ago(600));
+        h.messages.push(slept);
+        h.messages.push(stale);
+    }
+    bob.wait_for("the notice for the slept one", waited("e-slept"));
+    assert!(!bob.notifications.iter().any(is("e-slept")));
+
+    // Read, it says how long it waited and is not called already pushed.
+    let read = bob.tool(7, "chat_read", json!({"conversation_id": "c-bob"}));
+    let msgs = read["result"]["structuredContent"]["messages"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let m = msgs
+        .iter()
+        .find(|m| m["message_id"] == "e-stale")
+        .expect("readable");
+    assert_eq!(m["waited"], "1 hour", "{m}");
+    assert!(m.get("already_pushed").is_none(), "{m}");
+    bob.stop();
+}
+
 #[test]
 fn without_a_device_host_the_tools_say_how_to_get_one() {
     let home = tempfile::tempdir().unwrap();
