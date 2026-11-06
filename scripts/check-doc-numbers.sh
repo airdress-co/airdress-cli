@@ -10,7 +10,7 @@
 #      outside documentation (docs/, research/, runbooks/, .spec-workflow,
 #      CHANGELOG*, *.md).
 #   2. Content: fails when a non-comment line of a code file contains a
-#      document number. A line is a comment when, after leading whitespace, it
+#      document number, or an AC/FR/NFR/OQ/gate id used as a name (FINE_RE). A line is a comment when, after leading whitespace, it
 #      starts with // /// # -- * or /*; a trailing `// …`, ` # …` or ` -- …`
 #      segment is also a comment.
 #
@@ -31,11 +31,26 @@ git ls-files -z | python3 -c '
 import re, sys
 
 SUMMARY = (
-    "Document numbers (SPEC/RDR/RCP-NNN) stay out of code: name the "
+    "Document numbers (SPEC/RDR/RCP-NNN, and AC/FR/NFR/OQ or gate ids used as names) stay out of code: name the "
     "thing, and put the spec reference in a comment.")
 
 PATH_RE = re.compile(r"(?i)(spec|rdr|rcp)[_-]?[0-9]{3}")
 TOKEN_RE = re.compile(r"(?i)(?<![a-z0-9])(spec|rdr|rcp)[_-]?[0-9]{3}(?![0-9])")
+# Finer references used as names: an acceptance criterion, requirement or
+# open question attached to a name (ac14_foo, foo_fr41, SHELLS-OQ9), a
+# lower-case design gate key (g3_mrr_drop), and the same in a file name
+# (reactions_fr41.rs, x.nfr14.json). UUIDs and long hex or base64 runs are
+# removed before the content match, so a UUID fragment like -ac79 is not a
+# criterion. Bare runbook numbers and task ids are not matched: in code
+# they are almost always prose (alert documentation, a runbook path).
+FINE_RE = re.compile(
+    r"(?i:(?<![a-z0-9])(n?fr|ac|oq)[-_]?[0-9]{1,3}[a-z]?_[a-z]"
+    r"|[a-z0-9][_-](n?fr|ac|oq)[-_]?[0-9]{1,3}[a-z]?(?![a-z0-9]))"
+    r"|\bg[1-9]_[a-z_]{3,}")
+FINE_PATH_RE = re.compile(r"(?i)[._-](n?fr|ac|oq|g)[0-9]{1,3}([._-]|$)")
+NOISE_RE = re.compile(
+    r"(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r"|[0-9a-f]{8,}|[a-z0-9+/=]{40,}")
 DOC_PREFIXES = ("docs/", "research/", "runbooks/", ".spec-workflow")
 # Content checks only. Applied migrations are immutable: sqlx checksums every
 # applied file and refuses to start on a mismatch, so a number already in a
@@ -66,7 +81,7 @@ failures = []
 for path in sys.stdin.buffer.read().decode().split("\0"):
     if not path or is_doc(path):
         continue
-    if PATH_RE.search(path):
+    if PATH_RE.search(path) or FINE_PATH_RE.search(path.rsplit("/", 1)[-1]):
         failures.append(f"{path}: file name carries a document number")
     base = path.rsplit("/", 1)[-1]
     if (any(p in path for p in SKIP_PARTS) or base in SKIP_NAMES
@@ -81,7 +96,8 @@ for path in sys.stdin.buffer.read().decode().split("\0"):
     for n, line in enumerate(text.splitlines(), 1):
         if "allow-doc-number:" in line:
             continue
-        if TOKEN_RE.search(code_part(line)):
+        code = code_part(line)
+        if TOKEN_RE.search(code) or FINE_RE.search(NOISE_RE.sub("", code)):
             failures.append(f"{path}:{n}: {line.strip()[:120]}")
 
 if failures:
