@@ -295,6 +295,19 @@ pub fn notification(m: &Value) -> Value {
     put("from", s("from"));
     put("message_id", s("message_id"));
     put("lane", s("lane"));
+    // When it was written, and whether it waited for this session to start
+    // (SPEC-166 H.5): a handed-over request may no longer stand.
+    put("sent_at", s("at"));
+    if m["queued"] == json!(true) {
+        put("queued", Some("yes".into()));
+        let at = m["at"]
+            .as_str()
+            .and_then(|a| chrono::DateTime::parse_from_rfc3339(a).ok());
+        put(
+            "waited",
+            at.map(|a| waited(chrono::Utc::now() - a.with_timezone(&chrono::Utc))),
+        );
+    }
     // A reply says what it answers (SPEC-174 FR-31); the content stays the
     // person's words, unaltered.
     let r = &m["reply_to"];
@@ -323,6 +336,16 @@ pub fn notification(m: &Value) -> Value {
         "method": channel_push::METHOD,
         "params": {"content": m["text"].as_str().unwrap_or_default(), "meta": Value::Object(meta)},
     })
+}
+
+/// How long a handed-over message waited, in the largest whole unit.
+pub fn waited(d: chrono::Duration) -> String {
+    let unit = |n: i64, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    match d {
+        d if d.num_days() >= 1 => unit(d.num_days(), "day"),
+        d if d.num_hours() >= 1 => unit(d.num_hours(), "hour"),
+        d => unit(d.num_minutes().max(0), "minute"),
+    }
 }
 
 /// Push new messages from the default airdress's device host while the
@@ -545,5 +568,29 @@ mod tests {
                 .as_deref(),
             Some("bob")
         );
+    }
+
+    #[test]
+    fn a_handed_over_message_says_when_it_was_sent_and_that_it_waited() {
+        let at = (chrono::Utc::now() - chrono::Duration::days(3)).to_rfc3339();
+        let n = notification(&json!({
+            "conversation_id": "c1", "from": "a.example", "message_id": "m1",
+            "lane": "assigned", "text": "deploy it", "at": at, "queued": true,
+        }));
+        let meta = n["params"]["meta"].as_object().unwrap();
+        assert_eq!(meta["sent_at"], at.as_str());
+        assert_eq!(meta["queued"], "yes");
+        assert_eq!(meta["waited"], "3 days");
+        for k in meta.keys() {
+            assert!(meta_key_ok(k), "{k}");
+        }
+        assert_eq!(n["params"]["content"], "deploy it");
+        // A live one carries its time and nothing else.
+        let live = notification(&json!({"text": "now", "at": at}));
+        assert_eq!(live["params"]["meta"]["sent_at"], at.as_str());
+        assert!(live["params"]["meta"].get("queued").is_none());
+        assert!(live["params"]["meta"].get("waited").is_none());
+        assert_eq!(waited(chrono::Duration::minutes(1)), "1 minute");
+        assert_eq!(waited(chrono::Duration::minutes(130)), "2 hours");
     }
 }

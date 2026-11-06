@@ -1076,6 +1076,9 @@ impl Chat {
                 Some((name, _)) => self.hand_over(name, None).await,
                 None => Vec::new(),
             };
+            // Each says it waited, so a session can tell a request from
+            // weeks ago from one somebody is waiting on (SPEC-166 H.5).
+            let waiting: Vec<Value> = waiting.iter().map(queued).collect();
             return json!({"ok": true, "messages": waiting, "head": head().await,
                           "names_here": names_here(&named)});
         };
@@ -1305,9 +1308,30 @@ fn text_block(text: &str, by_session: Option<Value>) -> Value {
     block
 }
 
+/// A message handed over from the backlog, marked as having waited.
+fn queued(m: &Message) -> Value {
+    let mut v = serde_json::to_value(m).unwrap_or_default();
+    v["queued"] = json!(true);
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_handed_over_message_is_marked_queued_and_keeps_its_time() {
+        let m: Message = serde_json::from_value(json!({
+            "seq": 3, "message_id": "m1", "conversation_id": "c1", "from": "a.example",
+            "lane": "assigned", "from_self": false, "text": "deploy it",
+            "at": "2026-10-20T10:00:00Z",
+        }))
+        .unwrap();
+        let v = queued(&m);
+        assert_eq!(v["queued"], true);
+        assert_eq!(v["at"], "2026-10-20T10:00:00Z");
+        assert_eq!(v["text"], "deploy it");
+    }
 
     /// Answers each request with `200 {}` and records its request line and
     /// body, in order.
