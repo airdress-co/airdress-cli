@@ -119,21 +119,7 @@ pub async fn call(
             let pushed = session.chat_pushed_through(fqdn).await;
             let me = session.name();
             if let Some(items) = v["messages"].as_array_mut() {
-                let now = chrono::Utc::now();
-                for m in items.iter_mut() {
-                    // One that waited past the bound was announced, not
-                    // pushed (H.7): it says how long it waited instead.
-                    if waited_too_long(m, now) {
-                        if let Some(age) = age(m, now) {
-                            m["waited"] = json!(waited(age));
-                        }
-                        continue;
-                    }
-                    let seq = m["seq"].as_i64().unwrap_or(i64::MAX);
-                    if seq <= pushed {
-                        m["already_pushed"] = json!(true);
-                    }
-                }
+                mark_pushed(items, pushed, chrono::Utc::now());
                 // Nothing is hidden from a read: a message for another
                 // session is returned, and says so (design §5.4).
                 for m in items.iter_mut() {
@@ -403,6 +389,24 @@ pub fn waited_notice(items: &[&Value], me: &str, now: chrono::DateTime<chrono::U
             "conversation_id": conversations.join(","),
         }},
     })
+}
+
+/// Mark what a read returns: `already_pushed` for what the push loop sent
+/// as itself, `waited` instead for one that waited past the bound, which
+/// was only announced (H.7) and so is news to the reader.
+pub fn mark_pushed(items: &mut [Value], pushed: i64, now: chrono::DateTime<chrono::Utc>) {
+    for m in items.iter_mut() {
+        if waited_too_long(m, now) {
+            if let Some(age) = age(m, now) {
+                m["waited"] = json!(waited(age));
+            }
+            continue;
+        }
+        let seq = m["seq"].as_i64().unwrap_or(i64::MAX);
+        if seq <= pushed {
+            m["already_pushed"] = json!(true);
+        }
+    }
 }
 
 /// How long a handed-over message waited, in the largest whole unit.
@@ -708,5 +712,24 @@ mod tests {
         for k in meta.keys() {
             assert!(meta_key_ok(k), "{k}");
         }
+    }
+
+    #[test]
+    fn a_read_calls_only_what_was_pushed_already_pushed() {
+        let now = chrono::Utc::now();
+        let at = |mins: i64| (now - chrono::Duration::minutes(mins)).to_rfc3339();
+        let mut items = vec![
+            json!({"seq": 1, "at": at(2)}),
+            json!({"seq": 2, "at": at(90)}),
+            json!({"seq": 3, "at": at(1)}),
+        ];
+        mark_pushed(&mut items, 2, now);
+        assert_eq!(items[0]["already_pushed"], true);
+        // Announced, not pushed: news to the reader, with its age.
+        assert!(items[1].get("already_pushed").is_none());
+        assert_eq!(items[1]["waited"], "1 hour");
+        // Past what was pushed.
+        assert!(items[2].get("already_pushed").is_none());
+        assert!(items[2].get("waited").is_none());
     }
 }
