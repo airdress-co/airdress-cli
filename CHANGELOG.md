@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.33](https://github.com/airdress-co/airdress-cli/compare/v0.1.32...v0.1.33) - 2026-11-06
+
+### Added
+
+- *(mcp)* A handed-over chat message says when it was sent and that it waited
+
 ## [0.1.32](https://github.com/airdress-co/airdress-cli/compare/v0.1.31...v0.1.32) - 2026-11-05
 
 ### Fixed
