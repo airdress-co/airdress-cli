@@ -119,7 +119,16 @@ pub async fn call(
             let pushed = session.chat_pushed_through(fqdn).await;
             let me = session.name();
             if let Some(items) = v["messages"].as_array_mut() {
+                let now = chrono::Utc::now();
                 for m in items.iter_mut() {
+                    // One that waited past the bound was announced, not
+                    // pushed (H.7): it says how long it waited instead.
+                    if waited_too_long(m, now) {
+                        if let Some(age) = age(m, now) {
+                            m["waited"] = json!(waited(age));
+                        }
+                        continue;
+                    }
                     let seq = m["seq"].as_i64().unwrap_or(i64::MAX);
                     if seq <= pushed {
                         m["already_pushed"] = json!(true);
@@ -338,6 +347,64 @@ pub fn notification(m: &Value) -> Value {
     })
 }
 
+/// A message older than this is not pushed to the session it is for: it
+/// may no longer stand, and a session acts on what it is handed (AIR-174:
+/// told to ask first, a session wrote the file a 65-minute-old request
+/// asked for, and apologised after).
+pub const WAITED_TOO_LONG: chrono::Duration = chrono::Duration::hours(1);
+
+/// How long ago `m` was sent, by its `at`.
+fn age(m: &Value, now: chrono::DateTime<chrono::Utc>) -> Option<chrono::Duration> {
+    let at = chrono::DateTime::parse_from_rfc3339(m["at"].as_str()?).ok()?;
+    Some(now - at.with_timezone(&chrono::Utc))
+}
+
+/// Whether `m` waited past the bound: handed over from the backlog, or
+/// delayed by a sleep (it then arrives live, with no `queued`).
+pub fn waited_too_long(m: &Value, now: chrono::DateTime<chrono::Utc>) -> bool {
+    age(m, now).is_some_and(|a| a > WAITED_TOO_LONG)
+}
+
+/// The one notice that stands for the messages that waited too long: who
+/// wrote them, where, how long they waited; not their words.
+pub fn waited_notice(items: &[&Value], me: &str, now: chrono::DateTime<chrono::Utc>) -> Value {
+    let oldest = items.iter().filter_map(|m| age(m, now)).max();
+    let mut conversations: Vec<&str> = items
+        .iter()
+        .filter_map(|m| m["conversation_id"].as_str())
+        .collect();
+    conversations.dedup();
+    let ids: Vec<&str> = items
+        .iter()
+        .filter_map(|m| m["message_id"].as_str())
+        .collect();
+    let n = items.len();
+    let content = format!(
+        "{n} chat message{s} for @{me} waited {w} before reaching this session, so {it} \
+         not shown here. Read {them} with chat_read (conversation {c}), tell the person \
+         what {they} asked and when, and act only on what they confirm still stands.",
+        s = if n == 1 { "" } else { "s" },
+        w = oldest
+            .map(|a| format!("up to {}", waited(a)))
+            .unwrap_or_else(|| "too long".into()),
+        it = if n == 1 { "it is" } else { "they are" },
+        them = if n == 1 { "it" } else { "them" },
+        they = if n == 1 { "it" } else { "they" },
+        c = conversations.join(", "),
+    );
+    json!({
+        "jsonrpc": "2.0",
+        "method": channel_push::METHOD,
+        "params": {"content": content, "meta": {
+            "kind": "notice",
+            "notice": "chat_waited",
+            "session_name": me,
+            "message_ids": ids.join(","),
+            "conversation_id": conversations.join(","),
+        }},
+    })
+}
+
 /// How long a handed-over message waited, in the largest whole unit.
 pub fn waited(d: chrono::Duration) -> String {
     let unit = |n: i64, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
@@ -422,6 +489,10 @@ pub async fn start(session: Arc<Session>) {
                         .filter_map(|n| n.as_str().map(str::to_owned))
                         .collect()
                 });
+                // Messages for this session that waited past the bound:
+                // announced in one notice, not pushed as requests (H.7).
+                let mut waited_long: Vec<&Value> = Vec::new();
+                let now = chrono::Utc::now();
                 for m in v["messages"].as_array().into_iter().flatten() {
                     if m["from_self"] == json!(true) {
                         continue;
@@ -434,6 +505,10 @@ pub async fn start(session: Arc<Session>) {
                     // (SPEC-166 phase C).
                     if let Some(only) = m["for_session"].as_str() {
                         if only != me {
+                            continue;
+                        }
+                        if waited_too_long(m, now) {
+                            waited_long.push(m);
                             continue;
                         }
                         let mut n = notification(m);
@@ -463,6 +538,10 @@ pub async fn start(session: Arc<Session>) {
                         answered.as_deref(),
                         live.as_ref().map(|l| &l.others[..]),
                     );
+                    if a == Addressed::ThisSession && waited_too_long(m, now) {
+                        waited_long.push(m);
+                        continue;
+                    }
                     let mut n = notification(m);
                     place(&mut n, origin::of_chat(m, &fqdn, &widenings));
                     let meta = &mut n["params"]["meta"];
@@ -487,6 +566,9 @@ pub async fn start(session: Arc<Session>) {
                         }
                     }
                     session.notify(n).await;
+                }
+                if !waited_long.is_empty() {
+                    session.notify(waited_notice(&waited_long, &me, now)).await;
                 }
                 if let Some(head) = v["head"].as_i64() {
                     after = Some(head);
@@ -592,5 +674,39 @@ mod tests {
         assert!(live["params"]["meta"].get("waited").is_none());
         assert_eq!(waited(chrono::Duration::minutes(1)), "1 minute");
         assert_eq!(waited(chrono::Duration::minutes(130)), "2 hours");
+    }
+
+    #[test]
+    fn a_message_older_than_the_bound_is_announced_not_pushed() {
+        let now = chrono::Utc::now();
+        let at = |mins: i64| (now - chrono::Duration::minutes(mins)).to_rfc3339();
+        let fresh = json!({"at": at(5), "queued": true});
+        let stale = json!({"at": at(65), "queued": true, "message_id": "m1",
+                           "conversation_id": "c1", "text": "create the file"});
+        // A sleep: live, no queued, but old.
+        let slept = json!({"at": at(600), "message_id": "m2", "conversation_id": "c1",
+                           "text": "deploy it"});
+        assert!(!waited_too_long(&fresh, now));
+        assert!(waited_too_long(&stale, now));
+        assert!(waited_too_long(&slept, now));
+        assert!(!waited_too_long(&json!({"text": "no time"}), now));
+
+        let n = waited_notice(&[&stale, &slept], "backlog", now);
+        let content = n["params"]["content"].as_str().unwrap();
+        assert!(
+            content.contains("2 chat messages for @backlog"),
+            "{content}"
+        );
+        assert!(content.contains("up to 10 hours"), "{content}");
+        assert!(content.contains("chat_read"), "{content}");
+        // The words are not in the notice: reading them is a decision.
+        assert!(!content.contains("create the file") && !content.contains("deploy it"));
+        let meta = n["params"]["meta"].as_object().unwrap();
+        assert_eq!(meta["kind"], "notice");
+        assert_eq!(meta["message_ids"], "m1,m2");
+        assert_eq!(meta["conversation_id"], "c1");
+        for k in meta.keys() {
+            assert!(meta_key_ok(k), "{k}");
+        }
     }
 }

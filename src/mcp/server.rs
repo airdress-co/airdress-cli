@@ -310,8 +310,10 @@ fn naming(name: &str) -> String {
          particular message, pass its message_id as chat_send's reply_to. \
          A pushed message with queued=yes was written while no session of \
          your name was running and is handed over now; sent_at and waited \
-         say when. If it waited more than an hour, ask the person whether a \
-         request in it still stands before acting on it."
+         say when. A message for you that waited more than an hour is not \
+         pushed: a notice (notice=chat_waited) names it instead. Read it \
+         with chat_read, tell the person what it asked and when, and act only \
+         on what they confirm still stands."
     )
 }
 
