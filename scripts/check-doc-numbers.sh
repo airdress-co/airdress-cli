@@ -10,7 +10,8 @@
 #      outside documentation (docs/, research/, runbooks/, .spec-workflow,
 #      CHANGELOG*, *.md).
 #   2. Content: fails when a non-comment line of a code file contains a
-#      document number, or an AC/FR/NFR/OQ/gate id used as a name (FINE_RE). A line is a comment when, after leading whitespace, it
+#      document number, or an AC/FR/NFR/OQ/gate id used as a name
+#      (FINE_RE). A line is a comment when, after leading whitespace, it
 #      starts with // /// # -- * or /*; a trailing `// …`, ` # …` or ` -- …`
 #      segment is also a comment.
 #
@@ -66,6 +67,41 @@ SKIP_NAMES = ("package-lock.json", "pnpm-lock.yaml", "Cargo.lock", "go.sum")
 LINE_COMMENT = ("///", "//", "#", "--", "/*", "*")
 TRAILING = re.compile(r"(^|\s)(//|#|--)(\s|$)")
 
+# clap prints the doc comments of a derive as --help text, so in Rust those
+# /// lines are output, not comments: the doc block above a
+# #[derive(Parser|Subcommand|Args|ValueEnum)] and every /// in its body.
+# There any document or criterion number fails, bare ones included.
+CLAP_DERIVE = re.compile(r"#\[derive\([^)]*\b(Parser|Subcommand|Args|ValueEnum)\b")
+HELP_RE = re.compile(
+    r"(?i)(?<![a-z0-9])(spec|rdr|rcp|rb|n?fr|ac|oq)[-_ ]?[0-9]{1,3}[a-z]?(?![0-9])")
+
+
+def clap_help_lines(lines):
+    found = set()
+    for i, line in enumerate(lines):
+        if not CLAP_DERIVE.search(line):
+            continue
+        j = i - 1
+        while j >= 0 and lines[j].strip().startswith(("//", "#[")):
+            if lines[j].strip().startswith("///"):
+                found.add(j)
+            j -= 1
+        depth, started = 0, False
+        for k in range(i + 1, len(lines)):
+            s = lines[k].strip()
+            if s.startswith("///"):
+                if started:
+                    found.add(k)
+                continue
+            if s.startswith("//"):
+                continue
+            depth += s.count("{") - s.count("}")
+            started = started or "{" in s
+            if (started and depth <= 0) or (not started and s.endswith(";")):
+                break
+    return found
+
+
 def is_doc(path):
     base = path.rsplit("/", 1)[-1]
     return (path.startswith(DOC_PREFIXES) or "/.spec-workflow" in path
@@ -93,8 +129,12 @@ for path in sys.stdin.buffer.read().decode().split("\0"):
         text = open(path, encoding="utf-8").read()
     except (OSError, UnicodeDecodeError):
         continue
+    help = clap_help_lines(text.splitlines()) if path.endswith(".rs") and any(CLAP_DERIVE.search(x) for x in text.splitlines()) else set()
     for n, line in enumerate(text.splitlines(), 1):
         if "allow-doc-number:" in line:
+            continue
+        if n - 1 in help and HELP_RE.search(line.strip()[3:]):
+            failures.append(f"{path}:{n}: clap help text: {line.strip()[:110]}")
             continue
         code = code_part(line)
         if TOKEN_RE.search(code) or FINE_RE.search(NOISE_RE.sub("", code)):
