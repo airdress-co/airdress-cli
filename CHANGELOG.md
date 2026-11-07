@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.36](https://github.com/airdress-co/airdress-cli/compare/v0.1.35...v0.1.36) - 2026-11-07
+
+### Fixed
+
+- *(agent)* The device host ends a session its server left open
+
 ## [0.1.35](https://github.com/airdress-co/airdress-cli/compare/v0.1.34...v0.1.35) - 2026-11-07
 
 ### Fixed
