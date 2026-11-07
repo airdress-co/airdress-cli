@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.34](https://github.com/airdress-co/airdress-cli/compare/v0.1.33...v0.1.34) - 2026-11-07
+
+### Added
+
+- *(mcp)* A chat message that waited more than an hour is announced, not pushed
+
+### Changed
+
+- *(mcp)* Chat_read's marking is a function with its own test
+
+### Build and release
+
+- *(doc-numbers)* Fail on criterion, requirement and gate ids used as names
+- *(doc-numbers)* Clap help text is output, not a comment
+
+### Tests
+
+- *(mcp)* A message that waited over an hour is announced end to end
+- *(mcp)* Chat delivery fixtures are sent now, not a month ago
+
 ## [0.1.33](https://github.com/airdress-co/airdress-cli/compare/v0.1.32...v0.1.33) - 2026-11-06
 
 ### Added
