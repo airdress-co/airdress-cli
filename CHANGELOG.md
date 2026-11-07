@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.35](https://github.com/airdress-co/airdress-cli/compare/v0.1.34...v0.1.35) - 2026-11-07
+
+### Fixed
+
+- *(mcp)* A re-registered session knows its own account before placing a sender
+
 ## [0.1.34](https://github.com/airdress-co/airdress-cli/compare/v0.1.33...v0.1.34) - 2026-11-07
 
 ### Added
