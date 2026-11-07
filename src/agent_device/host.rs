@@ -70,6 +70,22 @@ pub enum HubAuth {
 }
 
 impl HubAuth {
+    /// A bearer for the operator at `operator` (its base URL), as the
+    /// session servers on this machine reach its bus.
+    async fn operator_bearer(&self, operator: &str) -> Result<Redacted<String>> {
+        match self {
+            Self::Static { bearer, .. } => Ok(bearer.clone()),
+            Self::Profile { paths, name } => {
+                crate::auth::tokens::access_token(
+                    paths,
+                    name,
+                    crate::auth::tokens::Audience::Operator(operator),
+                )
+                .await
+            }
+        }
+    }
+
     async fn resolve(&self) -> Result<(String, Redacted<String>)> {
         match self {
             Self::Static { base, bearer } => Ok((base.clone(), bearer.clone())),
@@ -313,6 +329,55 @@ impl State {
         })
     }
 
+    /// End the bus session `hold` names, signed by this device: the
+    /// session's server went away without ending it. Claude Code stops a
+    /// session's server about 56 ms after `/exit`, too soon for the
+    /// server's own signed `DELETE` (SPEC-166 166-H.6), and before this
+    /// the session stayed listed until its heartbeat lapsed (~90 s).
+    async fn end_bus_session(&self, hold: &BusHold) -> Result<()> {
+        let (key, enrollment) = {
+            let guard = self.device.lock().await;
+            let Some(dev) = guard
+                .as_ref()
+                .filter(|d| !d.record.enrollment_id.is_empty())
+            else {
+                anyhow::bail!("this machine is not an approved agent device");
+            };
+            if !matches!(
+                join::standing(dev.record.expires_at, Utc::now()),
+                Standing::Approved | Standing::RenewalDue
+            ) {
+                anyhow::bail!("this agent device's approval has lapsed");
+            }
+            (dev.identity.clone(), dev.record.enrollment_id.clone())
+        };
+        let signer = crate::agent_bus::client::Signer::Key {
+            key: Box::new(key),
+            enrollment: enrollment.clone(),
+        };
+        let mut body = json!({});
+        crate::agent_bus::client::attest(
+            &signer,
+            &hold.airdress,
+            &hold.session,
+            &enrollment,
+            "session.end",
+            &hold.session,
+            &mut body,
+        )
+        .await?;
+        let operator = &self.identity.operator;
+        let bearer = self.hub.operator_bearer(operator).await?;
+        crate::agent_bus::client::BusClient::new(operator, bearer)?
+            .request(
+                reqwest::Method::DELETE,
+                &format!("/sessions/{}", hold.session),
+                Some(&body),
+            )
+            .await?;
+        Ok(())
+    }
+
     async fn handle(&self, req: &Value) -> Value {
         let op = req["op"].as_str().unwrap_or_default();
         let answer = match op {
@@ -445,12 +510,41 @@ pub async fn serve(
                 let serve_client = async move {
                     let (r, mut w) = sock.into_split();
                     let mut lines = BufReader::new(r).lines();
+                    // The bus session this connection holds open, if any.
+                    let mut hold: Option<BusHold> = None;
                     while let Ok(Some(line)) = lines.next_line().await {
                         let req: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
-                        let mut out = serde_json::to_vec(&st.handle(&req).await).unwrap_or_default();
+                        let answer = match req["op"].as_str() {
+                            Some("bus.hold") => match BusHold::of(&req) {
+                                Some(h) => {
+                                    hold = Some(h);
+                                    json!({"ok": true})
+                                }
+                                None => refusal(
+                                    "bad_request",
+                                    "bus.hold takes an airdress and a session",
+                                ),
+                            },
+                            Some("bus.release") => {
+                                hold = None;
+                                json!({"ok": true})
+                            }
+                            _ => st.handle(&req).await,
+                        };
+                        let mut out = serde_json::to_vec(&answer).unwrap_or_default();
                         out.push(b'\n');
                         if w.write_all(&out).await.is_err() {
                             break;
+                        }
+                    }
+                    // Closed while holding: the server ended without
+                    // ending its session. Bounded, so a dead operator
+                    // cannot keep this task (and the holder's drain) open.
+                    if let Some(h) = hold {
+                        match tokio::time::timeout(END_HELD_SESSION, st.end_bus_session(&h)).await {
+                            Ok(Ok(())) => tracing::info!(session = %h.session, "ended a bus session its server left open"),
+                            Ok(Err(e)) => tracing::debug!(session = %h.session, error = %format!("{e:#}"), "could not end a bus session its server left open; it expires on its own"),
+                            Err(_) => tracing::debug!(session = %h.session, "ending a bus session its server left open timed out; it expires on its own"),
                         }
                     }
                 };
@@ -493,6 +587,34 @@ pub async fn serve(
         None => Ok(()),
     }
 }
+
+/// A bus session a client connection holds open (`bus.hold`): ended by
+/// the holder when the connection closes without a `bus.release`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BusHold {
+    /// The airdress as the bus's `/info` names it (signed over).
+    airdress: String,
+    /// The session's id.
+    session: String,
+}
+
+impl BusHold {
+    fn of(req: &Value) -> Option<Self> {
+        let field = |k: &str| {
+            req[k]
+                .as_str()
+                .filter(|s| !s.is_empty() && !s.contains('/'))
+                .map(str::to_owned)
+        };
+        Some(Self {
+            airdress: field("airdress")?,
+            session: field("session")?,
+        })
+    }
+}
+
+/// How long the holder tries to end a session its server left open.
+const END_HELD_SESSION: Duration = Duration::from_secs(10);
 
 /// How many clients a holder serves at once (R-ASY-5); past it the socket
 /// is not accepted from until one leaves.
@@ -633,6 +755,148 @@ mod tests {
         assert_eq!(v["device_id"], dev.record.device_id.as_str());
         second.cancel();
         follower.await.unwrap().unwrap();
+    }
+
+    /// An operator that records each request (`METHOD path`, body) and
+    /// answers 200 `{}`.
+    async fn recording_operator() -> (String, tokio::sync::mpsc::Receiver<(String, Value)>) {
+        use tokio::io::AsyncReadExt as _;
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", l.local_addr().unwrap());
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = l.accept().await {
+                let tx = tx.clone();
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    let (head, body) = loop {
+                        let n = s.read(&mut chunk).await.unwrap_or(0);
+                        if n == 0 {
+                            return;
+                        }
+                        buf.extend_from_slice(&chunk[..n]);
+                        let text = String::from_utf8_lossy(&buf).to_string();
+                        if let Some(i) = text.find("\r\n\r\n") {
+                            let head = text[..i].to_owned();
+                            let len = head
+                                .lines()
+                                .find_map(|l| {
+                                    let (k, v) = l.split_once(':')?;
+                                    k.eq_ignore_ascii_case("content-length")
+                                        .then(|| v.trim().parse::<usize>().ok())?
+                                })
+                                .unwrap_or(0);
+                            if buf.len() >= i + 4 + len {
+                                break (head, buf[i + 4..i + 4 + len].to_vec());
+                            }
+                        }
+                    };
+                    let line = head.lines().next().unwrap_or_default();
+                    let mut parts = line.split(' ');
+                    let what = format!(
+                        "{} {}",
+                        parts.next().unwrap_or_default(),
+                        parts.next().unwrap_or_default()
+                    );
+                    let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                    let _sent = tx.send((what, body)).await;
+                    let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                                Content-Length: 2\r\nConnection: close\r\n\r\n{}";
+                    if let Err(e) = s.write_all(resp.as_bytes()).await {
+                        eprintln!("best effort, the peer may have gone: {e}");
+                    }
+                });
+            }
+        });
+        (base, rx)
+    }
+
+    /// 166-H.6: a server that holds a bus session and goes without ending
+    /// it (Claude Code stops it ~56 ms after `/exit`) has it ended by the
+    /// host, signed by the device; one that released it does not.
+    #[tokio::test]
+    async fn a_held_bus_session_is_ended_when_its_server_goes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AgentStore::file_only(dir.path(), "a.example").unwrap();
+        let (operator, mut seen) = recording_operator().await;
+        let mut dev = join::new_device(
+            "a.example",
+            &operator,
+            "Agent on box".into(),
+            "test-harness",
+        );
+        dev.record.enrollment_id = "e1".into();
+        dev.record.expires_at = Some(Utc::now() + chrono::Duration::days(20));
+        store.save(&mut dev).unwrap();
+        let key = store.load().unwrap().unwrap().identity.verifying_key();
+        let cancel = CancellationToken::new();
+        let host = tokio::spawn(run(
+            store.clone(),
+            hub(),
+            Identity {
+                operator: operator.clone(),
+                ..identity()
+            },
+            Duration::from_secs(3600),
+            cancel.clone(),
+        ));
+        let sock = socket_path(&store);
+        let mut hold = crate::agent_bus::socket::Hold::default();
+        let mut held = false;
+        for _ in 0..100 {
+            if hold.hold(&sock, "air-1", "s-1").await.is_ok() {
+                held = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(held, "the host took the hold");
+        // A newer registration replaces the id held.
+        hold.hold(&sock, "air-1", "s-2").await.unwrap();
+        drop(hold);
+
+        let (what, body) = tokio::time::timeout(Duration::from_secs(5), seen.recv())
+            .await
+            .expect("the host ended the session")
+            .unwrap();
+        assert_eq!(what, "DELETE /v1/agent-bus/sessions/s-2");
+        let att = &body["attestation"];
+        assert_eq!(att["session"], "s-2");
+        assert_eq!(att["enrollment"], "e1");
+        let signed = crate::agent_bus::canon::signing_input(&json!({
+            "airdress": "air-1",
+            "signed_by": "device",
+            "session": "s-2",
+            "enrollment": "e1",
+            "op": "session.end",
+            "target": "s-2",
+            "body": crate::agent_bus::canon::body_hash(&json!({})).unwrap(),
+            "nonce": att["nonce"],
+            "time": att["time"],
+        }))
+        .unwrap();
+        let sig: [u8; 64] = URL_SAFE_NO_PAD
+            .decode(att["sig"].as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        key.verify_strict(&signed, &ed25519_dalek::Signature::from_bytes(&sig))
+            .expect("signed by the device for session.end");
+
+        // Released first: the server ended it itself, so nothing is sent.
+        let mut hold = crate::agent_bus::socket::Hold::default();
+        hold.hold(&sock, "air-1", "s-3").await.unwrap();
+        hold.release().await;
+        drop(hold);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(500), seen.recv())
+                .await
+                .is_err(),
+            "a released session is not ended again"
+        );
+        cancel.cancel();
+        host.await.unwrap().unwrap();
     }
 
     #[tokio::test]

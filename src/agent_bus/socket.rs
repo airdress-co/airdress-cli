@@ -83,6 +83,100 @@ pub async fn call(socket: &Path, req: &Value) -> Result<Value> {
     Ok(v)
 }
 
+/// A connection kept open to the device host, telling it which bus
+/// session this server holds (`bus.hold`). When this process ends without
+/// ending that session (Claude Code stops a session's server ~56 ms after
+/// `/exit`, SPEC-166 166-H.6), the connection closes and the host ends
+/// the session for it. [`Hold::release`] says the server ended it itself.
+#[derive(Debug, Default)]
+pub struct Hold {
+    #[cfg(unix)]
+    conn: Option<(
+        tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>,
+        tokio::net::unix::OwnedWriteHalf,
+    )>,
+}
+
+#[cfg(unix)]
+impl Hold {
+    /// Tell the host at `socket` that this connection holds `session`.
+    /// Sent again with every heartbeat, so a host that took over from a
+    /// dead one learns it too; a broken connection is opened again once.
+    ///
+    /// # Errors
+    /// No host is serving, or it refused (an older host has no `bus.hold`).
+    pub async fn hold(&mut self, socket: &Path, airdress: &str, session: &str) -> Result<()> {
+        let req = json!({"op": "bus.hold", "airdress": airdress, "session": session});
+        let mut last = None;
+        for _ in 0..2 {
+            match self.ask(socket, &req).await {
+                Ok(v) if v["ok"] == json!(true) => return Ok(()),
+                Ok(v) => bail!(
+                    "{}",
+                    v["message"].as_str().unwrap_or("the device host refused")
+                ),
+                Err(e) => {
+                    self.conn = None;
+                    last = Some(e);
+                }
+            }
+        }
+        Err(last.unwrap_or_else(|| anyhow::anyhow!("the device host did not answer")))
+    }
+
+    /// The session was ended by this server: the host must not end it.
+    pub async fn release(&mut self) {
+        if self.conn.is_some() {
+            if let Err(e) = self.ask_open(&json!({"op": "bus.release"})).await {
+                // The connection closes below either way; a host that missed
+                // the release may still end a session that is already gone.
+                tracing::debug!(error = %format!("{e:#}"), "telling the device host the session ended");
+            }
+        }
+        self.conn = None;
+    }
+
+    async fn ask(&mut self, socket: &Path, req: &Value) -> Result<Value> {
+        if self.conn.is_none() {
+            let sock = UnixStream::connect(socket)
+                .await
+                .with_context(|| format!("no device host is serving {}", socket.display()))?;
+            let (r, w) = sock.into_split();
+            self.conn = Some((BufReader::new(r).lines(), w));
+        }
+        self.ask_open(req).await
+    }
+
+    async fn ask_open(&mut self, req: &Value) -> Result<Value> {
+        let (lines, w) = self
+            .conn
+            .as_mut()
+            .context("no connection to the device host")?;
+        let mut out = serde_json::to_vec(req)?;
+        out.push(b'\n');
+        w.write_all(&out).await?;
+        let line = lines
+            .next_line()
+            .await?
+            .context("the device host closed the connection")?;
+        Ok(serde_json::from_str(&line)?)
+    }
+}
+
+#[cfg(not(unix))]
+impl Hold {
+    /// No device host on this platform, so nothing to hold.
+    ///
+    /// # Errors
+    /// Always: the device host listens on a Unix socket.
+    pub async fn hold(&mut self, socket: &Path, _airdress: &str, _session: &str) -> Result<()> {
+        anyhow::bail!("no device host on this platform ({})", socket.display())
+    }
+
+    /// Nothing to release.
+    pub async fn release(&mut self) {}
+}
+
 /// Ask the holder one question. The device host listens on a Unix socket,
 /// so on Windows there is none to ask.
 #[cfg(not(unix))]

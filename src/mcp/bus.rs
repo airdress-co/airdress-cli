@@ -75,6 +75,9 @@ pub struct Link {
     /// the stream), owned here (R-ASY-1). A new registration replaces it,
     /// which aborts the old one; `shutdown` ends it.
     task: std::sync::Mutex<tokio::task::JoinSet<()>>,
+    /// The connection telling the device host which session this server
+    /// holds, so the host ends it if this process goes without doing so.
+    hold: Mutex<socket::Hold>,
 }
 
 impl std::fmt::Debug for Link {
@@ -198,6 +201,7 @@ async fn link(session: &Arc<Session>, fqdn: &str, create: bool) -> Result<Option
                     ..Known::default()
                 }),
                 delivery: Mutex::new(Delivery::default()),
+                hold: Mutex::new(socket::Hold::default()),
                 task: std::sync::Mutex::new(tokio::task::JoinSet::new()),
             });
             links.insert(fqdn.to_owned(), Arc::clone(&l));
@@ -593,7 +597,7 @@ pub async fn shutdown(session: &Arc<Session>) {
                 .await
                 .log_debug("releasing a held name at shutdown");
             }
-            write(
+            let ended = write(
                 session,
                 &l,
                 Method::DELETE,
@@ -602,8 +606,16 @@ pub async fn shutdown(session: &Arc<Session>) {
                 "",
                 &json!({}),
             )
-            .await
-            .log_debug("releasing a held name at shutdown");
+            .await;
+            if let Err(e) = &ended {
+                tracing::debug!(error = %format!("{e:#}"), "ending the bus session at shutdown failed");
+            }
+            // Ended here: the device host must not end it again. Not
+            // ended (or not in time): the hold stays, and the host ends
+            // it when this process's connection closes.
+            if ended.is_ok() {
+                l.hold.lock().await.release().await;
+            }
             l.registered.store(false, Ordering::SeqCst);
         }
     };
@@ -649,6 +661,7 @@ impl Link {
 async fn keep_alive(session: Arc<Session>, l: Arc<Link>, generation: u64) {
     let every = heartbeat_every(&l.info);
     let mut last_beat = Instant::now();
+    let mut hold_due = true;
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
         if !l.current(generation) {
@@ -657,8 +670,13 @@ async fn keep_alive(session: Arc<Session>, l: Arc<Link>, generation: u64) {
         if !l.is_registered() {
             continue;
         }
+        if hold_due {
+            hold_due = false;
+            hold(&l).await;
+        }
         if last_beat.elapsed() >= every {
             last_beat = Instant::now();
+            hold_due = true;
             if let Err(e) = write(
                 &session,
                 &l,
@@ -674,6 +692,20 @@ async fn keep_alive(session: Arc<Session>, l: Arc<Link>, generation: u64) {
             }
         }
         renew_due(&session, &l).await;
+    }
+}
+
+/// Tell this machine's device host which session this server holds, so
+/// the host ends it if this process ends without doing so (166-H.6).
+/// Best effort: without it the session still expires on its own.
+async fn hold(l: &Arc<Link>) {
+    let Signer::Host(socket) = &l.signer else {
+        return;
+    };
+    let sid = l.session_id().await;
+    let r = l.hold.lock().await.hold(socket, &l.airdress, &sid).await;
+    if let Err(e) = r {
+        tracing::debug!(error = %format!("{e:#}"), "the device host does not hold this bus session");
     }
 }
 
