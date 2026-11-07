@@ -205,7 +205,13 @@ pub fn of_bus(
                 )
             }
         }
-        (Some(p), _) => {
+        // Not knowing whose this session is, it cannot tell the owner's
+        // own sessions from another person's: say so rather than guess.
+        (Some(_), None) => Placed::unknown(&format!(
+            "From {label}; this session does not know its own account yet, so it cannot \
+             tell whether that is you or another person on this airdress."
+        )),
+        (Some(p), Some(_)) => {
             let who = item["from_principal_name"]
                 .as_str()
                 .unwrap_or("another person");
@@ -326,6 +332,15 @@ mod tests {
         let kid = json!({"from_principal": "p-kid", "from_principal_name": "Ada"});
         let p = of_bus(&kid, &valid("device"), "a.example", Some("p-me"), &none);
         assert_eq!(p.origin, Origin::SubUser);
+        // Its own account unknown, it guesses neither way (AIR-174).
+        let blind = of_bus(&mine, &valid("device"), "a.example", None, &none);
+        assert_eq!(blind.origin, Origin::Unknown);
+        assert!(!blind.requests);
+        assert!(
+            blind.text.contains("does not know its own account"),
+            "{}",
+            blind.text
+        );
         assert!(!p.requests);
         assert!(p.text.starts_with("From Ada"), "{}", p.text);
         let w = Widenings::from_list(

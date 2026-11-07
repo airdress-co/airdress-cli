@@ -893,13 +893,21 @@ async fn deliver(session: &Arc<Session>, l: &Arc<Link>, mut item: Value) {
     }
     let verdict = label(session, l, &mut item).await;
     let mut n = channel_push::notification(&item, &verdict);
-    let mine = l
-        .known
-        .lock()
-        .await
-        .sessions
-        .get(&me)
-        .and_then(|r| r["principal_id"].as_str().map(str::to_owned));
+    let own = |known: &Known| {
+        known
+            .sessions
+            .get(&me)
+            .and_then(|r| r["principal_id"].as_str().map(str::to_owned))
+    };
+    let mut mine = own(&*l.known.lock().await);
+    // A session that re-registered has a new id its cache does not hold
+    // yet, and without its own principal every message from the owner's
+    // other sessions read as another person's (AIR-174, after an operator
+    // restart): look once more before placing the sender.
+    if mine.is_none() {
+        refresh_known(session, l).await;
+        mine = own(&*l.known.lock().await);
+    }
     let widenings = session.widenings(&l.fqdn).await;
     crate::mcp::chat::place(
         &mut n,
