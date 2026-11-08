@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.37](https://github.com/airdress-co/airdress-cli/compare/v0.1.36...v0.1.37) - 2026-11-08
+
+### Fixed
+
+- *(place)* Give a map_area link a camera on the area
+
 ## [0.1.36](https://github.com/airdress-co/airdress-cli/compare/v0.1.35...v0.1.36) - 2026-11-07
 
 ### Fixed
