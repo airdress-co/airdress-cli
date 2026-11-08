@@ -846,7 +846,8 @@ fn map_tools_answer_with_links_and_decline_category_questions() {
         "Places come from OpenStreetMap and may have closed."
     );
 
-    // An area, outlined and fitted (no camera in its link).
+    // An area, outlined, with a camera on its point at its kind's zoom: a
+    // bare area=r<id> is found only in tiles already loaded under the view.
     let r = tool_json(&call(
         &mut server,
         13,
@@ -856,7 +857,7 @@ fn map_tools_answer_with_links_and_decline_category_questions() {
     assert_eq!(r["areas"][0]["relation"], 62768);
     assert_eq!(
         r["areas"][0]["map_link"],
-        "https://maps.airdress.co/#area=r62768"
+        "https://maps.airdress.co/#map=7/47.95/7.85&area=r62768"
     );
 
     // A relation id alone: a link, and a note that nothing was looked up.

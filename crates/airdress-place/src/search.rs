@@ -270,14 +270,24 @@ pub fn shape_result(r: &Value, o: &Options) -> Option<Value> {
     Some(Value::Object(out))
 }
 
-/// An area as `map_area` answers it: the outline link has no camera, so
-/// the page fits the area itself.
+/// An area as `map_area` answers it: the outline link carries a camera on
+/// the area's point at its kind's zoom. Without one the link named no
+/// place: the page and the app find an outline only in the tiles already
+/// loaded under the view, so from a cold start a town (in the boundaries
+/// data from z9) was never found (SPEC-191 191-B.10).
 #[must_use]
 pub fn shape_area(r: &Value, o: &Options) -> Option<Value> {
     let id = relation_of(r)?;
     let point = r.get("point")?.as_array()?;
     let (lng, lat) = (point.first()?.as_f64()?, point.get(1)?.as_f64()?);
-    let l = link(&json!({"area": id}), o);
+    let layer = r.get("layer").and_then(Value::as_str).unwrap_or("locality");
+    let l = link(
+        &json!({
+            "camera": {"lat": lat, "lng": lng, "zoom": zoom_for(layer)},
+            "area": id,
+        }),
+        o,
+    );
     Some(json!({
         "relation": id,
         "name": r.get("name").and_then(Value::as_str).unwrap_or(""),
@@ -352,7 +362,10 @@ mod tests {
         );
         assert_eq!(s["address"], "Nordrhein-Westfalen, Deutschland");
         let a = shape_area(&r, &snapshot()).unwrap();
-        assert_eq!(a["map_link"], "https://maps.airdress.co/#area=r62508");
+        assert_eq!(
+            a["map_link"],
+            "https://maps.airdress.co/#map=11/50.7374/7.0982&area=r62508"
+        );
         let way = json!({"name": "X", "point": [1, 2], "layer": "locality", "osm": {"type": "way", "id": 1}});
         assert!(shape_area(&way, &snapshot()).is_none());
     }
