@@ -263,7 +263,11 @@ pub struct Clients {
 pub async fn run(command: GeoCommands, args: RunArgs<'_>) -> Result<()> {
     check_locally(&command)?;
     let c = connect(&args).await?;
-    let json = args.json;
+    dispatch(&c, command, args.json).await
+}
+
+/// A checked command over connected clients.
+async fn dispatch(c: &Clients, command: GeoCommands, json: bool) -> Result<()> {
     match command {
         GeoCommands::Collections { command } => match command {
             None | Some(CollectionsCommands::List) => collections_list(&c.geo, json).await,
@@ -288,7 +292,7 @@ pub async fn run(command: GeoCommands, args: RunArgs<'_>) -> Result<()> {
                 Ok(())
             }
         }
-        GeoCommands::Share { command } => share(&c, command, json).await,
+        GeoCommands::Share { command } => share(c, command, json).await,
     }
 }
 
@@ -1804,5 +1808,902 @@ mod tests {
         for want in ["trips~3f9a2c1b0d4e", "personal", "sealed", "Trips"] {
             assert!(text.contains(want), "{want}: {text}");
         }
+    }
+}
+
+/// The verbs end to end over canned answers: what each sends, in what
+/// order, and what it refuses before sending anything.
+#[cfg(test)]
+mod verb_tests {
+    use super::*;
+    use crate::functions::test_support::{canned_operator, response};
+    use crate::redact::Redacted;
+
+    const INSTALL: &str = "01JABCDEFGHJKMNPQRSTVWXYZ0";
+    const ITEM: &str = "0b6a1f0e-2c3d-4e5f-8a9b-0c1d2e3f4a5b";
+    const GRANT: &str = "7a1d0000-0000-4000-8000-000000000001";
+
+    fn bearer() -> Redacted<String> {
+        Redacted::new("tok".to_owned())
+    }
+
+    fn household(name: &str) -> String {
+        format!("{name}~{}", namespace_tag(&format!("install:{INSTALL}")))
+    }
+
+    fn with_headers(status: &str, headers: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n{headers}Connection: close\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    fn body_of(request: &str) -> Value {
+        serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap_or("")).unwrap()
+    }
+
+    fn first_line(request: &str) -> &str {
+        request.lines().next().unwrap_or("")
+    }
+
+    async fn geo_with(responses: Vec<String>) -> (GeoClient, tokio::task::JoinHandle<Vec<String>>) {
+        let (base, seen) = canned_operator(responses).await;
+        (GeoClient::with_base_url(base, bearer()).unwrap(), seen)
+    }
+
+    /// Geo and the operator, each with its own canned answers.
+    async fn clients_with(
+        geo: Vec<String>,
+        ops: Vec<String>,
+    ) -> (
+        Clients,
+        tokio::task::JoinHandle<Vec<String>>,
+        tokio::task::JoinHandle<Vec<String>>,
+    ) {
+        let (g, g_seen) = canned_operator(geo).await;
+        let (o, o_seen) = canned_operator(ops).await;
+        (
+            Clients {
+                geo: GeoClient::with_base_url(g, bearer()).unwrap(),
+                grants: GrantsClient::with_base_url(o, bearer()).unwrap(),
+            },
+            g_seen,
+            o_seen,
+        )
+    }
+
+    fn grant_json(actions: &[&str]) -> String {
+        json!({
+            "id": GRANT, "install": INSTALL, "type": "GeoCollection",
+            "namespace": format!("install:{INSTALL}"), "resource": "plots",
+            "principal": "p2", "actions": actions, "created_at": "2026-11-11T00:00:00Z"
+        })
+        .to_string()
+    }
+
+    fn grants_json(actions: &[&str]) -> String {
+        format!(r#"{{"grants":[{}]}}"#, grant_json(actions))
+    }
+
+    const COLLECTION: &str = r#"{"id":"plots~aaaaaaaaaaaa","title":"Plots","scope":"airdress","storage":{"mode":"queryable","atRest":"plain"},"description":"The allotment","extent":{"spatial":{"bbox":[[11.0,48.0,12.0,49.0]],"crs":"x"}}}"#;
+
+    // --- collections and usage ------------------------------------------
+
+    #[tokio::test]
+    async fn collections_list_and_show_in_both_formats() {
+        let list = format!(r#"{{"collections":[{COLLECTION}]}}"#);
+        for json in [false, true] {
+            let (c, g_seen, _) = clients_with(
+                vec![
+                    response("200 OK", &list),
+                    response("200 OK", &list),
+                    response("200 OK", COLLECTION),
+                ],
+                vec![],
+            )
+            .await;
+            dispatch(&c, GeoCommands::Collections { command: None }, json)
+                .await
+                .unwrap();
+            dispatch(
+                &c,
+                GeoCommands::Collections {
+                    command: Some(CollectionsCommands::Show {
+                        collection: "plots".into(),
+                    }),
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            let seen = g_seen.await.unwrap();
+            assert!(first_line(&seen[2]).starts_with("GET /collections/plots~aaaaaaaaaaaa "));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_empty_listing_is_said_not_failed() {
+        let (geo, _) = geo_with(vec![response("200 OK", r#"{"collections":[]}"#)]).await;
+        collections_list(&geo, false).await.unwrap();
+    }
+
+    #[test]
+    fn a_collection_shows_its_description_and_rounded_extent() {
+        let text = render_collection(&serde_json::from_str(COLLECTION).unwrap());
+        for want in [
+            "collection plots~aaaaaaaaaaaa",
+            "queryable (plain)",
+            "The allotment",
+            "11.0, 48.0, 12.0, 49.0",
+        ] {
+            assert!(text.contains(want), "{want}: {text}");
+        }
+        let bare = render_collection(&json!({ "id": "x~1" }));
+        assert!(
+            bare.contains("title:    -") && !bare.contains("extent"),
+            "{bare}"
+        );
+    }
+
+    #[tokio::test]
+    async fn usage_in_both_formats() {
+        let usage = r#"{"principal":"me","personal":{"usage":{"items":1},"limits":{"items":2}}}"#;
+        for json in [false, true] {
+            let (c, g_seen, _) = clients_with(vec![response("200 OK", usage)], vec![]).await;
+            dispatch(&c, GeoCommands::Usage, json).await.unwrap();
+            assert!(first_line(&g_seen.await.unwrap()[0]).starts_with("GET /me/usage "));
+        }
+        let text = render_usage(&serde_json::from_str(usage).unwrap());
+        assert!(
+            text.contains("items         1 of 2") && !text.contains("household"),
+            "{text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_readable_collection_by_that_name_says_where_to_look() {
+        let (geo, _) = geo_with(vec![response(
+            "200 OK",
+            r#"{"collections":[{"id":"trips~a"}]}"#,
+        )])
+        .await;
+        let err = resolve_collection(&geo, "plots")
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no geo collection named `plots`"), "{err}");
+    }
+
+    // --- items ----------------------------------------------------------
+
+    #[tokio::test]
+    async fn items_list_prints_a_table_and_the_next_cursor() {
+        let page = json!({
+            "type": "FeatureCollection",
+            "features": [
+                { "type": "Feature", "id": ITEM, "geometry": { "type": "Point" }, "properties": { "note": "x".repeat(80) } },
+                { "type": "Feature", "id": 7, "geometry": null }
+            ],
+            "links": [{ "rel": "next", "href": "https://geo.x/collections/c/items?cursor=n1" }]
+        })
+        .to_string();
+        for json in [false, true] {
+            let (geo, seen) = geo_with(vec![response("200 OK", &page)]).await;
+            items(
+                &geo,
+                ItemsCommands::List {
+                    collection: "plots~a".into(),
+                    limit: Some(2),
+                    bbox: None,
+                    datetime: Some("2026-01-01T00:00:00Z/..".into()),
+                    filter: None,
+                    cursor: Some("n0".into()),
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            let line = first_line(&seen.await.unwrap()[0]).to_owned();
+            assert!(
+                line.contains("limit=2")
+                    && line.contains("cursor=n0")
+                    && line.contains("datetime="),
+                "{line}"
+            );
+        }
+        let v: Value = serde_json::from_str(&page).unwrap();
+        let text = render_items(v["features"].as_array().unwrap());
+        assert!(
+            text.contains(ITEM) && text.contains("Point") && text.contains('…'),
+            "{text}"
+        );
+        assert!(
+            text.contains("\n7 "),
+            "a numeric id is shown as written: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_page_is_said() {
+        let (geo, _) = geo_with(vec![response("200 OK", r#"{"features":[]}"#)]).await;
+        items(
+            &geo,
+            ItemsCommands::List {
+                collection: "plots~a".into(),
+                limit: None,
+                bbox: None,
+                datetime: None,
+                filter: None,
+                cursor: None,
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn items_get_in_both_formats() {
+        let feature = json!({ "type": "Feature", "id": ITEM }).to_string();
+        for json in [false, true] {
+            let (geo, seen) =
+                geo_with(vec![with_headers("200 OK", "ETag: \"e1\"\r\n", &feature)]).await;
+            items(
+                &geo,
+                ItemsCommands::Get {
+                    collection: "plots~a".into(),
+                    id: ITEM.into(),
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            assert!(first_line(&seen.await.unwrap()[0])
+                .starts_with(&format!("GET /collections/plots~a/items/{ITEM} ")));
+        }
+    }
+
+    fn feature_file() -> tempfile::NamedTempFile {
+        let f = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(
+            f.path(),
+            r#"{"type":"Feature","geometry":{"type":"Point","coordinates":[11.5,48.1]},"properties":{}}"#,
+        )
+        .unwrap();
+        f
+    }
+
+    #[tokio::test]
+    async fn put_without_an_id_posts_and_reads_the_new_id_from_location() {
+        let f = feature_file();
+        for json in [false, true] {
+            let (geo, seen) = geo_with(vec![with_headers(
+                "201 Created",
+                &format!(
+                    "Location: https://geo.x/collections/plots~a/items/{ITEM}\r\nETag: \"e1\"\r\n"
+                ),
+                "",
+            )])
+            .await;
+            items(
+                &geo,
+                ItemsCommands::Put {
+                    collection: "plots~a".into(),
+                    id: None,
+                    file: f.path().display().to_string(),
+                    if_match: None,
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            let seen = seen.await.unwrap();
+            assert!(first_line(&seen[0]).starts_with("POST /collections/plots~a/items "));
+            assert_eq!(body_of(&seen[0])["type"], "Feature");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_create_with_no_location_is_an_error_not_a_guess() {
+        let (geo, _) = geo_with(vec![response("201 Created", "")]).await;
+        let err = geo
+            .create("plots~a", &json!({ "type": "Feature" }))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("did not say its id"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn put_with_an_id_replaces_under_if_match() {
+        let f = feature_file();
+        for json in [false, true] {
+            let (geo, seen) =
+                geo_with(vec![with_headers("204 No Content", "ETag: \"e2\"\r\n", "")]).await;
+            items(
+                &geo,
+                ItemsCommands::Put {
+                    collection: "plots~a".into(),
+                    id: Some(ITEM.into()),
+                    file: f.path().display().to_string(),
+                    if_match: Some("\"e1\"".into()),
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            let req = &seen.await.unwrap()[0];
+            assert!(first_line(req).starts_with(&format!("PUT /collections/plots~a/items/{ITEM} ")));
+            assert!(req.to_ascii_lowercase().contains("if-match: \"e1\""));
+        }
+    }
+
+    #[tokio::test]
+    async fn if_match_on_a_create_is_refused_before_sending() {
+        let f = feature_file();
+        let (geo, seen) = geo_with(vec![]).await;
+        let err = items(
+            &geo,
+            ItemsCommands::Put {
+                collection: "plots~a".into(),
+                id: None,
+                file: f.path().display().to_string(),
+                if_match: Some("\"e1\"".into()),
+            },
+            false,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("--if-match guards a replace"), "{err}");
+        assert!(seen.await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn put_of_a_missing_file_says_which() {
+        let (geo, _) = geo_with(vec![]).await;
+        let err = items(
+            &geo,
+            ItemsCommands::Put {
+                collection: "plots~a".into(),
+                id: None,
+                file: "/nonexistent/plot.geojson".into(),
+                if_match: None,
+            },
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("/nonexistent/plot.geojson"),
+            "{err:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_with_yes_sends_if_match_in_both_formats() {
+        for json in [false, true] {
+            let (geo, seen) = geo_with(vec![response("204 No Content", "")]).await;
+            items(
+                &geo,
+                ItemsCommands::Delete {
+                    collection: "plots~a".into(),
+                    id: ITEM.into(),
+                    if_match: Some("\"e1\"".into()),
+                    yes: true,
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            let req = &seen.await.unwrap()[0];
+            assert!(
+                first_line(req).starts_with(&format!("DELETE /collections/plots~a/items/{ITEM} "))
+            );
+            assert!(req.to_ascii_lowercase().contains("if-match: \"e1\""));
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_without_yes_asks_and_sends_nothing() {
+        // Test stdin is not a terminal, so the confirmation is required.
+        let (geo, seen) = geo_with(vec![]).await;
+        let err = items(
+            &geo,
+            ItemsCommands::Delete {
+                collection: "plots~a".into(),
+                id: ITEM.into(),
+                if_match: None,
+                yes: false,
+            },
+            false,
+        )
+        .await
+        .unwrap_err();
+        let f = crate::exit::classify(&err);
+        assert_eq!(f.exit, crate::exit::Exit::ConfirmationRequired);
+        assert!(f.hint.unwrap_or_default().contains("--yes"));
+        assert!(seen.await.unwrap().is_empty());
+    }
+
+    // --- grants ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn share_grant_in_both_formats() {
+        for json in [false, true] {
+            let (c, _, o_seen) = clients_with(
+                vec![],
+                vec![
+                    response("200 OK", r#"{"grants":[]}"#),
+                    response("201 Created", &grant_json(&["ReadData"])),
+                ],
+            )
+            .await;
+            share(
+                &c,
+                ShareCommands::Grant {
+                    collection: household("plots"),
+                    to: "p2".into(),
+                    actions: vec![DataAction::ReadData, DataAction::ReadData],
+                    install: Some(INSTALL.into()),
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            let seen = o_seen.await.unwrap();
+            assert_eq!(
+                body_of(&seen[1])["actions"],
+                json!(["ReadData"]),
+                "deduplicated"
+            );
+            assert_eq!(body_of(&seen[1])["namespace"], format!("install:{INSTALL}"));
+        }
+    }
+
+    #[tokio::test]
+    async fn share_revoke_of_all_in_both_formats() {
+        for json in [false, true] {
+            let (c, _, o_seen) = clients_with(
+                vec![],
+                vec![
+                    response("200 OK", &grants_json(&["ReadData"])),
+                    response("204 No Content", ""),
+                ],
+            )
+            .await;
+            share(
+                &c,
+                ShareCommands::Revoke {
+                    collection: household("plots"),
+                    to: "p2".into(),
+                    actions: vec![],
+                    install: Some(INSTALL.into()),
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            assert!(first_line(&o_seen.await.unwrap()[1])
+                .starts_with(&format!("DELETE /v1/plugin-grants/{GRANT} ")));
+        }
+    }
+
+    #[tokio::test]
+    async fn share_revoke_of_one_action_reports_what_stays() {
+        for json in [false, true] {
+            let (c, _, o_seen) = clients_with(
+                vec![],
+                vec![
+                    response("200 OK", &grants_json(&["ReadData", "WriteData"])),
+                    response("204 No Content", ""),
+                    response("201 Created", &grant_json(&["WriteData"])),
+                ],
+            )
+            .await;
+            share(
+                &c,
+                ShareCommands::Revoke {
+                    collection: household("plots"),
+                    to: "p2".into(),
+                    actions: vec![DataAction::ReadData],
+                    install: Some(INSTALL.into()),
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                body_of(&o_seen.await.unwrap()[2])["actions"],
+                json!(["WriteData"])
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn revoking_an_action_not_held_changes_nothing() {
+        let (c, _, o_seen) = clients_with(
+            vec![],
+            vec![response("200 OK", &grants_json(&["ReadData"]))],
+        )
+        .await;
+        let t = Target {
+            id: household("plots"),
+            install: INSTALL.into(),
+            namespace: format!("install:{INSTALL}"),
+            name: "plots".into(),
+        };
+        let left = revoke(&c.grants, &t, "p2", &[DataAction::WriteData])
+            .await
+            .unwrap();
+        assert_eq!(left.unwrap().actions, ["ReadData"]);
+        assert_eq!(o_seen.await.unwrap().len(), 1, "only the read");
+    }
+
+    #[tokio::test]
+    async fn share_list_in_every_shape() {
+        for (json, body) in [
+            (false, grants_json(&["ReadData", "WriteData"])),
+            (false, r#"{"grants":[]}"#.to_owned()),
+            (true, grants_json(&["ReadData"])),
+        ] {
+            let (c, _, o_seen) = clients_with(vec![], vec![response("200 OK", &body)]).await;
+            share(
+                &c,
+                ShareCommands::List {
+                    collection: household("plots"),
+                    install: Some(INSTALL.into()),
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            assert!(first_line(&o_seen.await.unwrap()[0])
+                .starts_with(&format!("GET /v1/plugin-grants?install={INSTALL} ")));
+        }
+    }
+
+    #[test]
+    fn grants_render_with_who_what_and_since() {
+        let g: Grant = serde_json::from_str(&grant_json(&["ReadData"])).unwrap();
+        let text = render_grants(&[g]);
+        for want in ["p2", "ReadData", GRANT, "2026-11-11"] {
+            assert!(text.contains(want), "{want}: {text}");
+        }
+        assert_eq!(
+            describe_actions(&["ReadData".into(), "WriteData".into()]),
+            "read and write"
+        );
+        assert_eq!(
+            describe_actions(&["WriteData".into()]),
+            "write (without reading)"
+        );
+        assert_eq!(describe_actions(&["Locate".into()]), "Locate");
+    }
+
+    #[tokio::test]
+    async fn the_owner_finds_the_install_and_anyone_else_is_told_to_pass_it() {
+        let (c, _, _) = clients_with(
+            vec![],
+            vec![response(
+                "403 Forbidden",
+                r#"{"type":"about:blank","status":403,"code":"owner_only"}"#,
+            )],
+        )
+        .await;
+        let err = target(&c, &household("plots"), None).await.unwrap_err();
+        let text = format!("{err:#}");
+        assert!(text.contains("--install <id>"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn geo_without_a_principal_is_an_error() {
+        let (c, _, _) = clients_with(vec![response("200 OK", "{}")], vec![]).await;
+        let err = target(&c, "trips~aaaaaaaaaaaa", Some(INSTALL))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("did not say who you are"), "{err}");
+    }
+
+    // --- links ----------------------------------------------------------
+
+    const MINTED: &str = r#"{"url":"https://geo.x/shared/biscuit:abc/","token":"biscuit:abc","rid":"r1","expiresAt":"2026-11-18T00:00:00Z","precisionM":0,"precision":"exact"}"#;
+
+    #[tokio::test]
+    async fn link_create_list_and_revoke_in_both_formats() {
+        let listed = r#"{"links":[{"rid":"r1","precisionM":0,"precision":"exact","expiresAt":"2026-11-18T00:00:00Z","state":"active"}]}"#;
+        for json in [false, true] {
+            let (geo, seen) = geo_with(vec![
+                response("201 Created", MINTED),
+                response("200 OK", listed),
+                response("200 OK", r#"{"links":[]}"#),
+                response("204 No Content", ""),
+            ])
+            .await;
+            links(
+                &geo,
+                LinkCommands::Create {
+                    collection: "plots~a".into(),
+                    precision: Some("exact".into()),
+                    ttl: None,
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            for _ in 0..2 {
+                links(
+                    &geo,
+                    LinkCommands::List {
+                        collection: "plots~a".into(),
+                    },
+                    json,
+                )
+                .await
+                .unwrap();
+            }
+            links(
+                &geo,
+                LinkCommands::Revoke {
+                    collection: "plots~a".into(),
+                    rid: "r1".into(),
+                },
+                json,
+            )
+            .await
+            .unwrap();
+            let seen = seen.await.unwrap();
+            assert_eq!(body_of(&seen[0]), json!({ "precisionM": 0 }));
+            assert!(first_line(&seen[3]).starts_with("DELETE /collections/plots~a/share-links/r1 "));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_mint_without_a_url_is_an_error() {
+        let (geo, _) = geo_with(vec![response("201 Created", r#"{"rid":"r1"}"#)]).await;
+        let err = links(
+            &geo,
+            LinkCommands::Create {
+                collection: "plots~a".into(),
+                precision: None,
+                ttl: None,
+            },
+            false,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("sent no url"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn links_off_is_said_in_words() {
+        let (geo, _) = geo_with(vec![response(
+            "403 Forbidden",
+            r#"{"type":"about:blank","title":"Sharing is off","status":403,"code":"share_link_disabled"}"#,
+        )])
+        .await;
+        let err = geo
+            .link_create("plots~a", &MintBody::default())
+            .await
+            .unwrap_err();
+        let f = crate::exit::classify(&err);
+        assert_eq!(f.code, "share_link_disabled");
+        assert!(f.message.contains("share links are off"), "{}", f.message);
+    }
+
+    // --- refusals -------------------------------------------------------
+
+    #[tokio::test]
+    async fn refusals_in_each_shape_geo_and_the_operator_answer() {
+        let cases: &[(&str, &str, &str)] = &[
+            // problem+json with a code we have no sentence for: its title.
+            (
+                "409 Conflict",
+                r#"{"type":"about:blank","title":"Something odd","status":409,"code":"odd_thing"}"#,
+                "Something odd (odd_thing)",
+            ),
+            // a code with neither sentence nor title.
+            (
+                "409 Conflict",
+                r#"{"status":409,"code":"odd_thing"}"#,
+                "read usage: odd_thing",
+            ),
+            // the operator's nested fallback.
+            (
+                "404 Not Found",
+                r#"{"error":{"code":"route_not_found","message":"No such route."}}"#,
+                "is geo installed?",
+            ),
+            // the operator's flat shape.
+            (
+                "409 Conflict",
+                r#"{"error":"grant_exists"}"#,
+                "already exists",
+            ),
+            // no code at all: the generic status sentence.
+            ("502 Bad Gateway", "upstream died", "server error"),
+            ("401 Unauthorized", "", "airdress auth login"),
+        ];
+        for (status, body, want) in cases {
+            let (geo, _) = geo_with(vec![response(status, body)]).await;
+            let err = geo.usage().await.unwrap_err().to_string();
+            assert!(err.contains(want), "{status} {body}: {err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_malformed_grant_id_is_refused_before_sending() {
+        let (c, _, o_seen) = clients_with(vec![], vec![]).await;
+        assert!(c.grants.revoke("../x").await.is_err());
+        assert!(c.grants.revoke("").await.is_err());
+        drop(c);
+        assert!(o_seen.await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_geo_is_a_transport_error_naming_it() {
+        // A port nothing listens on.
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", l.local_addr().unwrap());
+        drop(l);
+        let geo = GeoClient::with_base_url(base.clone(), bearer()).unwrap();
+        let err = format!("{:#}", geo.collections().await.unwrap_err());
+        assert!(err.contains("127.0.0.1"), "{err}");
+    }
+
+    // --- local checks ---------------------------------------------------
+
+    #[test]
+    fn every_verb_is_checked_before_connecting() {
+        let ok: Vec<GeoCommands> = vec![
+            GeoCommands::Usage,
+            GeoCommands::Collections { command: None },
+            GeoCommands::Collections {
+                command: Some(CollectionsCommands::Show {
+                    collection: "plots".into(),
+                }),
+            },
+            GeoCommands::Items {
+                command: ItemsCommands::List {
+                    collection: "plots".into(),
+                    limit: None,
+                    bbox: None,
+                    datetime: None,
+                    filter: None,
+                    cursor: None,
+                },
+            },
+            GeoCommands::Items {
+                command: ItemsCommands::Put {
+                    collection: "plots".into(),
+                    id: Some(ITEM.into()),
+                    file: "-".into(),
+                    if_match: None,
+                },
+            },
+            GeoCommands::Share {
+                command: ShareCommands::Grant {
+                    collection: "plots".into(),
+                    to: "p2".into(),
+                    actions: vec![DataAction::WriteData],
+                    install: Some(INSTALL.into()),
+                },
+            },
+            GeoCommands::Share {
+                command: ShareCommands::List {
+                    collection: "plots".into(),
+                    install: None,
+                },
+            },
+            GeoCommands::Share {
+                command: ShareCommands::Link {
+                    command: LinkCommands::Create {
+                        collection: "plots".into(),
+                        precision: Some("20km".into()),
+                        ttl: Some("1w".into()),
+                    },
+                },
+            },
+            GeoCommands::Share {
+                command: ShareCommands::Link {
+                    command: LinkCommands::List {
+                        collection: "plots".into(),
+                    },
+                },
+            },
+            GeoCommands::Share {
+                command: ShareCommands::Link {
+                    command: LinkCommands::Revoke {
+                        collection: "plots".into(),
+                        rid: "r1".into(),
+                    },
+                },
+            },
+        ];
+        for c in &ok {
+            assert!(check_locally(c).is_ok(), "{c:?}");
+        }
+        let bad: Vec<GeoCommands> = vec![
+            GeoCommands::Collections {
+                command: Some(CollectionsCommands::Show {
+                    collection: "a/b".into(),
+                }),
+            },
+            GeoCommands::Items {
+                command: ItemsCommands::Get {
+                    collection: "plots".into(),
+                    id: "not-a-uuid".into(),
+                },
+            },
+            GeoCommands::Items {
+                command: ItemsCommands::Delete {
+                    collection: "plots".into(),
+                    id: "x".into(),
+                    if_match: None,
+                    yes: true,
+                },
+            },
+            GeoCommands::Items {
+                command: ItemsCommands::Put {
+                    collection: "plots".into(),
+                    id: Some("x".into()),
+                    file: "-".into(),
+                    if_match: None,
+                },
+            },
+            GeoCommands::Share {
+                command: ShareCommands::Revoke {
+                    collection: "plots".into(),
+                    to: "a b".into(),
+                    actions: vec![],
+                    install: None,
+                },
+            },
+            GeoCommands::Share {
+                command: ShareCommands::Grant {
+                    collection: "plots".into(),
+                    to: "p2".into(),
+                    actions: vec![DataAction::ReadData],
+                    install: Some("../x".into()),
+                },
+            },
+            GeoCommands::Share {
+                command: ShareCommands::List {
+                    collection: "plots".into(),
+                    install: Some("a/b".into()),
+                },
+            },
+            GeoCommands::Share {
+                command: ShareCommands::Link {
+                    command: LinkCommands::Create {
+                        collection: "plots".into(),
+                        precision: Some("fine".into()),
+                        ttl: None,
+                    },
+                },
+            },
+            GeoCommands::Share {
+                command: ShareCommands::Link {
+                    command: LinkCommands::Create {
+                        collection: "plots".into(),
+                        precision: None,
+                        ttl: Some("soon".into()),
+                    },
+                },
+            },
+            GeoCommands::Share {
+                command: ShareCommands::Link {
+                    command: LinkCommands::Revoke {
+                        collection: "plots".into(),
+                        rid: "a/b".into(),
+                    },
+                },
+            },
+        ];
+        for c in &bad {
+            assert!(check_locally(c).is_err(), "{c:?}");
+        }
+        assert_eq!(DataAction::WriteData.as_str(), "WriteData");
     }
 }
