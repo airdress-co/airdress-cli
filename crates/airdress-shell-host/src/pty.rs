@@ -444,17 +444,26 @@ mod tests {
     async fn the_child_leads_its_own_session_on_the_terminal() {
         let (tx, mut rx) = mpsc::channel(64);
         // `ps -o` is not everywhere; /proc is, on Linux.
+        // The shell prints a marker and stays alive: waiting for its exit
+        // instead raced the PTY reader, and on CI the exit arrived before
+        // the last line of output did.
         let pty = spawn(
-            &spec("/bin/sh", &["-c", "tty; cat /proc/$$/stat"]),
+            &spec(
+                "/bin/sh",
+                &["-c", "tty; cat /proc/$$/stat; echo stat-done; sleep 5"],
+            ),
             &SessionEnv::default(),
             80,
             24,
             tx,
         )
         .unwrap();
-        let (out, _) = collect_until(&mut rx, "").await;
+        let (out, _) = collect_until(&mut rx, "stat-done").await;
         assert!(out.contains("/dev/pts/"), "{out}");
-        let stat = out.lines().nth(1).unwrap_or_default();
+        let stat = out
+            .lines()
+            .find(|l| l.contains(") "))
+            .unwrap_or_else(|| panic!("no stat line in {out:?}"));
         let fields: Vec<&str> = stat
             .rsplit(')')
             .next()
