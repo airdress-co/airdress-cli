@@ -313,7 +313,7 @@ this project may not ship, and `deny.toml` lists the ones it may.
 | [ring](https://github.com/briansmith/ring) | 0.17.14 | Apache-2.0 AND ISC |
 | [rustc-hash](https://github.com/rust-lang/rustc-hash) | 2.1.3 | Apache-2.0 OR MIT |
 | [rustc_version](https://github.com/djc/rustc-version-rs) | 0.4.1 | MIT OR Apache-2.0 |
-| [rustix](https://github.com/bytecodealliance/rustix) | 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
+| [rustix](https://github.com/bytecodealliance/rustix) | 1.1.6 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | [rustix-openpty](https://github.com/sunfishcode/rustix-openpty) | 0.2.0 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | [rustls](https://github.com/rustls/rustls) | 0.23.46 | Apache-2.0 OR ISC OR MIT |
 | [rustls-pki-types](https://github.com/rustls/pki-types) | 1.14.1 | MIT OR Apache-2.0 |
