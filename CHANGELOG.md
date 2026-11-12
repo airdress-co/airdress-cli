@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.38](https://github.com/airdress-co/airdress-cli/compare/v0.1.37...v0.1.38) - 2026-11-12
+
+### Added
+
+- *(geo)* Collections, items, sharing and usage from the terminal
+
+### Fixed
+
+- *(deps)* Rustix 1.1.6, past RUSTSEC-2026-0486
+
+### Tests
+
+- *(shell-host)* The session test waits for its marker, not the child's exit
+- *(geo)* Every verb end to end over canned answers
+
+### Other
+
+- Update Cargo.lock dependencies
+
 ## [0.1.37](https://github.com/airdress-co/airdress-cli/compare/v0.1.36...v0.1.37) - 2026-11-08
 
 ### Fixed
