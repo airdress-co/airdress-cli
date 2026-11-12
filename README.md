@@ -26,6 +26,7 @@ with that address from a terminal, a script or an editor.
 | Give an editor or an agent the same reach, over MCP | `airdress mcp serve` |
 | Pair a phone, approve a machine, link a Home Assistant | `airdress device pair`, `airdress machines approve` |
 | Install a plugin on your airdress | `airdress plugins install forms` |
+| Read, write and share your geo collections | `airdress geo items list trips` |
 | Declare resources and apply them | `airdress apply -f pool.yaml` |
 
 Every command takes `--output json` and exits with a
@@ -123,9 +124,9 @@ The documentation lives at [docs.airdress.co](https://docs.airdress.co/cli/):
 - [Exit codes](https://docs.airdress.co/cli/exit-codes/): the contract scripts rely on.
 
 The guides are also kept in this repository, under [`docs/`](docs/), with
-five that are only here for now:
+six that are only here for now:
 [devices, machines and homes](docs/devices-and-machines.md),
-[plugins](docs/plugins.md), [resources](docs/resources.md),
+[plugins](docs/plugins.md), [geo](docs/geo.md), [resources](docs/resources.md),
 [work items](docs/work.md) and
 [keys and storage](docs/keys-and-storage.md).
 

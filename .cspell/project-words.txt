@@ -299,3 +299,6 @@ Qube
 taiki
 analyser
 pkgverify
+bbox
+QGIS
+WRITEDATA

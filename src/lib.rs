@@ -36,6 +36,7 @@ pub mod events;
 pub mod exit;
 pub mod fsx;
 pub mod functions;
+pub mod geo;
 pub mod home;
 pub mod http;
 pub mod log_err;

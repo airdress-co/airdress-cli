@@ -9,8 +9,8 @@
 #![warn(clippy::tests_outside_test_module)]
 
 use airdress::{
-    airdresses, auth, build_version, current, device, events, functions, home, machine_admin, mcp,
-    plugins, profile, resources, shell_client, tls, update,
+    airdresses, auth, build_version, current, device, events, functions, geo, home, machine_admin,
+    mcp, plugins, profile, resources, shell_client, tls, update,
 };
 
 use std::process::ExitCode;
@@ -352,6 +352,24 @@ enum Commands {
         operator_url: Option<String>,
         #[command(subcommand)]
         command: plugins::PluginsCommands,
+    },
+    /// Your geo collections at `geo.<airdress>`: list and read them, read
+    /// and write their items as GeoJSON, share them with someone on your
+    /// airdress or by link, see your usage. A collection itself is a
+    /// `GeoCollection` resource (`airdress apply -f`).
+    Geo {
+        /// Profile to authenticate against
+        #[arg(short, long, global = true)]
+        profile: Option<String>,
+        /// Talk to this operator URL directly instead of resolving
+        /// `https://<fqdn>` via the hub. Dev-only; needs `--geo-url`.
+        #[arg(long, global = true, value_name = "URL")]
+        operator_url: Option<String>,
+        /// Talk to geo at this URL instead of `https://geo.<fqdn>`. Dev-only.
+        #[arg(long, global = true, value_name = "URL")]
+        geo_url: Option<String>,
+        #[command(subcommand)]
+        command: geo::GeoCommands,
     },
     /// Serve the tool catalogue over MCP, for an editor or an agent, or
     /// print it. The server reuses this profile store and writes no
@@ -1114,6 +1132,26 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             )
             .await?;
         }
+        Commands::Geo {
+            profile,
+            operator_url,
+            geo_url,
+            command,
+        } => {
+            geo::run(
+                command,
+                geo::RunArgs {
+                    profile: profile.as_deref(),
+                    paths: &paths,
+                    explicit_airdress,
+                    operator_url: operator_url.as_deref(),
+                    geo_url: geo_url.as_deref(),
+                    json: use_json,
+                    quiet,
+                },
+            )
+            .await?;
+        }
         Commands::Mcp { command } => {
             mcp::run(command, Some(paths.clone())).await?;
         }
@@ -1345,6 +1383,113 @@ mod tests {
         }
         assert!(super::Cli::try_parse_from(["airdress", "plugins", "install"]).is_err());
         assert!(super::Cli::try_parse_from(["airdress", "plugins", "uninstall"]).is_err());
+    }
+
+    /// The geo verbs beside the global flags, and what each refuses.
+    #[test]
+    fn the_geo_verbs_parse_beside_the_global_flags() {
+        use clap::Parser as _;
+        for argv in [
+            &["airdress", "geo", "collections"][..],
+            &["airdress", "-o", "json", "geo", "collections", "list"],
+            &[
+                "airdress",
+                "-A",
+                "ada",
+                "geo",
+                "collections",
+                "show",
+                "trips",
+            ],
+            &[
+                "airdress", "geo", "items", "list", "trips", "--limit", "5", "--bbox", "1,2,3,4",
+            ],
+            &[
+                "airdress", "geo", "items", "get", "trips", "x", "-p", "prod",
+            ],
+            &[
+                "airdress",
+                "geo",
+                "items",
+                "put",
+                "trips",
+                "-f",
+                "f.geojson",
+            ],
+            &[
+                "airdress",
+                "geo",
+                "items",
+                "put",
+                "trips",
+                "x",
+                "--if-match",
+                "\"e1\"",
+            ],
+            &["airdress", "geo", "items", "delete", "trips", "x", "--yes"],
+            &[
+                "airdress",
+                "geo",
+                "share",
+                "grant",
+                "trips",
+                "--to",
+                "p2",
+                "--action",
+                "ReadData",
+                "--action",
+                "writedata",
+            ],
+            &["airdress", "geo", "share", "revoke", "trips", "--to", "p2"],
+            &[
+                "airdress",
+                "geo",
+                "share",
+                "list",
+                "trips",
+                "--install",
+                "01J",
+            ],
+            &[
+                "airdress",
+                "geo",
+                "share",
+                "link",
+                "create",
+                "trips",
+                "--precision",
+                "1km",
+                "--ttl",
+                "7d",
+            ],
+            &["airdress", "geo", "share", "link", "list", "trips"],
+            &["airdress", "geo", "share", "link", "revoke", "trips", "r1"],
+            &[
+                "airdress",
+                "geo",
+                "--operator-url",
+                "http://127.0.0.1:8080",
+                "--geo-url",
+                "http://127.0.0.1:8081",
+                "usage",
+            ],
+        ] {
+            if let Err(e) = super::Cli::try_parse_from(argv) {
+                panic!("{argv:?}: {e}");
+            }
+        }
+        for argv in [
+            &["airdress", "geo", "share", "grant", "trips", "--to", "p2"][..],
+            &[
+                "airdress", "geo", "share", "grant", "trips", "--to", "p2", "--action", "Apply",
+            ],
+            &[
+                "airdress", "geo", "share", "grant", "trips", "--action", "ReadData",
+            ],
+            &["airdress", "geo", "items", "get", "trips"],
+        ] {
+            assert!(super::Cli::try_parse_from(argv).is_err(), "{argv:?}");
+        }
     }
 
     #[test]
